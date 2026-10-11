@@ -5,17 +5,70 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Hex Editor</title>
 <style>
+* {
+    background-color: #FFF;
+    color: #010101;
+}
+
+.title {
+    background-color: #E1E1E1;
+    color: #6C6C6C;
+}
+
 .code {
     white-space: pre;
-    flowover-x: auto;
-    font-style: monospace;
+    overflow-x: auto;
+    font-family: monospace;
 }
 </style>
 </head>
 <body>
 
+<input type="file" id="f">
+<p id="hex-area" class="code"></p>
 <script>
+function dec2hex(dec, len) {
+    const s = dec.toString(16).toUpperCase();
+    if (len !== undefined) return s.padStart(len, '0');
+    return s;
+}
 
+document.getElementById('f').onchange = async e => {
+    // Read
+    const file = e.target.files[0];
+    const buf = await file.arrayBuffer(); // ArrayBuffer
+    const bytes = new Uint8Array(buf); // List of bytes
+    
+    // Traverse
+    let num = 0;
+    const len = bytes.length;
+    const digits = dec2hex(len).length; // Quickly calculate the number of hexadecimal digits using a string
+    let output = [`<span class="title">${' '.repeat(digits)} 00 01 02 03 04 05 06 07</span>\n`];
+    for (let i of bytes) {
+        /*
+        8 bytes per line
+        
+        Divide:
+        000 AE 10 45 36 F6 95 01 37:
+        "000" + " AE" + " 10" + ... + " 37" + "\n"
+        
+        */
+        
+        // Start of a line
+        if (num % 8 == 0) {
+            output.push(`<span class="title">${dec2hex(num, digits)}</span>`);
+        }
+        output.push(` ${dec2hex(i, 2)}`);
+        if ((num + 1) % 8 == 0) {
+            output.push("\n");
+        }
+        num++;
+    }
+    
+    // Show
+    document.getElementById("hex-area").innerHTML = output.join("");
+};
 </script>
+
 </body>
 </html>
