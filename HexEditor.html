@@ -155,6 +155,27 @@ function switchHigh(newVal) {
     refresh();
 }
 
+// Edit
+function edit(val) {
+    // Protect
+    if (bytes === null) return;
+    
+    // Obtain the value of high & low
+    const low = bytes[now] % 16;
+    const high = (bytes[now] - low) / 16;
+    // Edit
+    if (isHigh){
+        bytes[now] = val * 16 + low;
+        isHigh = false;
+    } else {
+        bytes[now] = high * 16 + val;
+        isHigh = true;
+        move(1);
+    }
+    
+    refresh();
+}
+
 // Refresh
 function refresh() {
     // Info
@@ -240,7 +261,15 @@ window.addEventListener('load', () => {
         else if (e.key === 'd' || e.key === 'ArrowRight') { move(1); }
         else if (e.code === 'ShiftLeft') { switchHigh(true); }
         else if (e.code === 'ShiftRight') { switchHigh(false); }
+        else if (/^[0-9a-fA-F]$/.test(e.key)) {
+            edit(parseInt(e.key, 16));
+        }
     });
+    
+    // Edit onclick
+    for (let i = 0; i < 16; i++) {
+        document.getElementById(`edit-${dec2hex(i)}`).addEventListener('click', () => edit(i));
+    }
 });
 </script>
 
