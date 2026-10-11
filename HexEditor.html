@@ -145,7 +145,7 @@ let isHigh = true;
 
 // Consts
 const colors = {
-    isNiddle:   "#F8B4B4",
+    isNibble:   "#F8B4B4",
     plain:      "#FFF"
 };
 
@@ -247,10 +247,10 @@ function refresh() {
     
     // Update niddle btns
     if (isHigh) {
-        highNiddle.setAttribute('fill', colors.isNiddle);
+        highNiddle.setAttribute('fill', colors.isNibble);
         lowNiddle.setAttribute('fill', colors.plain);
     } else {
-        lowNiddle.setAttribute('fill', colors.isNiddle);
+        lowNiddle.setAttribute('fill', colors.isNibble);
         highNiddle.setAttribute('fill', colors.plain);
     }
 };
