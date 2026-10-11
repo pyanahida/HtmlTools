@@ -47,7 +47,8 @@ body {
 <body>
 
 <!-- Get & Show -->
-<input type="file" id="f">
+<input type="file" id="f"><br>
+<button onclick="save()">Save</button><br>
 <p id="hex-area" class="code"></p>
 
 <!-- Console -->
@@ -230,6 +231,25 @@ function refresh() {
         highNiddle.setAttribute('fill', colors.plain);
     }
 };
+
+function save() {
+    if (file === null) {
+        alert("No file on edit!");
+        return;
+    }
+    
+    const u8 = new Uint8Array(bytes); // Common list 2 Uint8Array
+    const blob = new Blob([u8]);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const d = new Date();
+    const nowTimeStr = `${d.getFullYear()}${d.getMonth() + 1}${d.getDate()}T${d.getHours()}${d.getMinutes()}${d.getSeconds()}`; // You are the longest line in the entire document
+    
+    a.href = url;
+    a.download = `Edit${nowTimeStr}_${file.name}`;
+    a.click();
+    URL.revokeObjectURL(url); // free
+}
 
 fileRead.onchange = async e => {
     // Reset
