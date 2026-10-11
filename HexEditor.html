@@ -49,7 +49,28 @@ body {
 <!-- Get & Show -->
 <input type="file" id="f"><br>
 <button onclick="save()">Save</button><br>
-<p id="hex-area" class="code"></p>
+
+<!--
+    The help document is placed here,
+    so that users can see the help when they first use it.
+    After selecting a file, 
+    the help is overwritten, 
+    which is very logical 
+-->
+<p id="hex-area" class="code">Help Document:
+---
+Format:
+Button | Keyboard: Descripe
+---
+You can swipe left or right on the screen to view more content
+&uarr;&darr;&larr;&rarr; | &uarr;&darr;&larr;&rarr;: Move cursor position
+L | left Shift: Switch to modify high nibble (Left 4 bits)
+R | right Shift: Switch to modify high nibble (Right 4 bits)
+0-F | 0-9 &amp; A-F: Modify the current value of nibble and automatically move 1 nibble backwards
+---
+Due to browser limitations, loading large files may be slightly slower
+The loading speed of the device used by the author is approximately 200KiB/s (~1.6Mbps)
+</p>
 
 <!-- Console -->
 <div class="footer">
@@ -179,6 +200,8 @@ function edit(val) {
 
 // Refresh
 function refresh() {
+    if (file === null) return; // return immediately to avoid the help document be cleaned
+    
     // Info
     let num = 0;
     const len = bytes.length;
