@@ -196,6 +196,7 @@ function getChar(byte) {
             case "<": real = "&lt;"; break;
             case "&": real = "&amp;"; break;
             case "\"": real = "&quot;"; break;
+            case "'": real = "&apos;"; break;
             default: real = s;
         }
         return real;
@@ -204,11 +205,14 @@ function getChar(byte) {
 }
 
 // Create empty
-function emptyCreate() {
-    file = new File([" "], "empty_create.txt", {
+async function emptyCreate() {
+    file = new File(["\u0000"], "empty_create.txt", {
         type: "text/plain",
         lastModified: Date.now()
     });
+    const buf = await file.arrayBuffer(); // ArrayBuffer
+    bytes = Array.from(new Uint8Array(buf)); // List of bytes
+    now = 0;
     refresh();
 }
 
@@ -276,7 +280,7 @@ function edit(val) {
 // Refresh
 function refresh() {
     if (bytes === null) return; // return immediately to avoid the help document be cleaned
-    if (bytes === []) bytes = [0];
+    if (bytes.length === 0) bytes = [0];
     
     // Info
     let num = 0;
