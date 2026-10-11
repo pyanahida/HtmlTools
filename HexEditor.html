@@ -326,6 +326,15 @@ function refresh() {
         num++;
     }
     
+    // If the length is less than 8, no preview will be displayed
+    if (len < 8) {
+        const append = 8 - len;
+        const concat = temp.join('');
+        
+        output.push(`${"   ".repeat(append)}`);
+        output.push(` | ${concat}\n`);
+    }
+    
     // Show
     hexArea.innerHTML = output.join("");
     
