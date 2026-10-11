@@ -76,6 +76,10 @@ to 0 | NUL: Set the current byte to 0
 ---
 Due to browser limitations, loading large files may be slightly slower
 The loading speed of the device used by the author is approximately 200KiB/s (~1.6Mbps)
+---
+Characteristic:
+Incoming empty files will become "00".
+When the length is 1, it is not allowed to continue deleting
 </p>
 
 <!-- Console -->
@@ -244,6 +248,10 @@ function insert(atRight, newVal = 0) {
 function del() {
     if (bytes === null) return;
     
+    if (bytes.length === 1) {
+        alert("It's too short, further deletion is not allowed.");
+        return;
+    }
     bytes.splice(now, 1);
     refresh();
 }
