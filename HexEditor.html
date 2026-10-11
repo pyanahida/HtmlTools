@@ -70,6 +70,8 @@ R | right Shift: Switch to modify high nibble (Right 4 bits)
 0-F | 0-9 &amp; A-F: Modify the current value of nibble and automatically move 1 nibble backwards
 L+ | NUL: Insert "00" before the current position
 R+ | NUL: Insert "00" after the current position
+&#x232b; | NUL: Delete current byte
+to 0 | NUL: Set the current byte to 0
 ---
 Due to browser limitations, loading large files may be slightly slower
 The loading speed of the device used by the author is approximately 200KiB/s (~1.6Mbps)
@@ -169,6 +171,8 @@ const lowNiddle = document.getElementById("low");
 const fileRead = document.getElementById('f');
 const leftInsert = document.getElementById('insert-left');
 const rightInsert = document.getElementById('insert-right');
+const delete_ = document.getElementById('delete'); // delete is keyword, so here's delete_
+const setZero = document.getElementById('setZero');
 const generateKey = x => { return document.getElementById(`key-${x}`); }
 
 // Convenience function
@@ -198,6 +202,22 @@ function insert(atRight, newVal = 0) {
     
     const index = atRight ? now + 1 : now;
     bytes.splice(index, 0, newVal);
+    refresh();
+}
+
+// Delete
+function delete() {
+    if (bytes === null) return;
+    
+    bytes.splice(now, 1);
+    refresh();
+}
+
+// Set zero
+function set0() {
+    if (bytes === null) return;
+    
+    bytes.splice(now, 1, 0);
     refresh();
 }
 
@@ -319,6 +339,9 @@ window.addEventListener('load', () => {
     
     highNiddle.addEventListener('click', () => switchHigh(true));
     lowNiddle.addEventListener('click', () => switchHigh(false));
+    
+    delete_.addEventListener('click', () => del());
+    setZero.addEventListener('click', () => set0());
     
     leftInsert.addEventListener('click', () => insert(false));
     rightInsert.addEventListener('click', () => insert(true));
