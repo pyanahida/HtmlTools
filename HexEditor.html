@@ -48,6 +48,7 @@ body {
 
 <!-- Get & Show -->
 <input type="file" id="f"><br>
+<button onclick="emptyCreate()">Create Empty</button><br>
 <button onclick="save()">Save</button><br>
 
 <!--
@@ -60,7 +61,7 @@ body {
 <p id="hex-area" class="code">Help Document:
 ---
 Format:
-Button | Keyboard: Descripe
+Button on page | Keyboard: Descripe
 NUL: Not adapted
 ---
 You can swipe left or right on the screen to view more content
@@ -202,9 +203,18 @@ function getChar(byte) {
     return ' ';
 }
 
+// Create empty
+function emptyCreate() {
+    file = new File([" "], "empty_create.txt", {
+        type: "text/plain",
+        lastModified: Date.now()
+    });
+    refresh();
+}
+
 // Move cursor
 function move(step) {
-    if (file !== null) {
+    if (bytes !== null) {
         now += step;
         refresh();
     }
@@ -265,7 +275,8 @@ function edit(val) {
 
 // Refresh
 function refresh() {
-    if (file === null) return; // return immediately to avoid the help document be cleaned
+    if (bytes === null) return; // return immediately to avoid the help document be cleaned
+    if (bytes === []) bytes = [0];
     
     // Info
     let num = 0;
