@@ -63,6 +63,16 @@ body {
     <text x="55" y="55" text-anchor="middle" dominant-baseline="middle" font-size="20" pointer-events="none">&darr;</text>
     <text x="25" y="55" text-anchor="middle" dominant-baseline="middle" font-size="20" pointer-events="none">&larr;</text>
     <text x="85" y="55" text-anchor="middle" dominant-baseline="middle" font-size="20" pointer-events="none">&rarr;</text>
+    
+    <!--
+    high / low nibble switch
+    The nibble on the left is tall
+    -->
+    <rect id="high" x="130" y="10" width="30" height="30" fill="#FFF" stroke="#000" stroke-width="1"/>
+    <rect id="low" x="130" y="40" width="30" height="30" fill="#FFF" stroke="#000" stroke-width="1"/>
+    
+    <text x="145" y="25" text-anchor="middle" dominant-baseline="middle" font-size="20" pointer-events="none">L</text>
+    <text x="145" y="55" text-anchor="middle" dominant-baseline="middle" font-size="20" pointer-events="none">R</text>
 </svg>
 
 </div>
@@ -71,13 +81,29 @@ body {
 let now = 0;
 let file = null;
 let bytes = null;
+let isHigh = true;
 
+// Consts
+const colors = {
+    isNiddle:   "#F8B4B4",
+    plain:      "#FFF"
+};
+
+// Dom
+const hexArea = document.getElementById("hex-area");
+const highNiddle = document.getElementById("high");
+const lowNiddle = document.getElementById("low");
+const fileRead = document.getElementById('f');
+const generateKey = x => { return document.getElementById(`key-${x}`); }
+
+// Convenience function
 function dec2hex(dec, len) {
     const s = dec.toString(16).toUpperCase();
     if (len !== undefined) return s.padStart(len, '0');
     return s;
 }
 
+// Move cursor
 function move(step) {
     if (file !== null) {
         now += step;
@@ -85,6 +111,13 @@ function move(step) {
     }
 }
 
+// modify isHigh
+function switchHigh(newVal) {
+    isHigh = newVal;
+    refresh();
+}
+
+// Refresh
 function refresh() {
     // Info
     let num = 0;
@@ -127,10 +160,19 @@ function refresh() {
     }
     
     // Show
-    document.getElementById("hex-area").innerHTML = output.join("");
+    hexArea.innerHTML = output.join("");
+    
+    // Update niddle btns
+    if (isHigh) {
+        highNiddle.setAttribute('fill', colors.isNiddle);
+        lowNiddle.setAttribute('fill', colors.plain);
+    } else {
+        lowNiddle.setAttribute('fill', colors.isNiddle);
+        highNiddle.setAttribute('fill', colors.plain);
+    }
 };
 
-document.getElementById('f').onchange = async e => {
+fileRead.onchange = async e => {
     // Reset
     now = 0;
     
@@ -144,10 +186,13 @@ document.getElementById('f').onchange = async e => {
 
 window.addEventListener('load', () => {
     // The SVG button (caters to mobile users)
-    document.getElementById('key-u').addEventListener('click', () => move(-8));
-    document.getElementById('key-d').addEventListener('click', () => move(8));
-    document.getElementById('key-l').addEventListener('click', () => move(-1));
-    document.getElementById('key-r').addEventListener('click', () => move(1));
+    generateKey('u').addEventListener('click', () => move(-8));
+    generateKey('d').addEventListener('click', () => move(8));
+    generateKey('l').addEventListener('click', () => move(-1));
+    generateKey('r').addEventListener('click', () => move(1));
+    
+    highNiddle.addEventListener('click', () => switchHigh(true));
+    lowNiddle.addEventListener('click', () => switchHigh(false));
     
     // The computer version is more convenient
     document.addEventListener('keydown', (e) => {
@@ -155,6 +200,8 @@ window.addEventListener('load', () => {
         else if (e.key === 's' || e.key === 'ArrowDown') { move(8); }
         else if (e.key === 'a' || e.key === 'ArrowLeft') { move(-1); }
         else if (e.key === 'd' || e.key === 'ArrowRight') { move(1); }
+        else if (e.code === 'ShiftLeft') { switchHigh(true); }
+        else if (e.code === 'ShiftRight') { switchHigh(false); }
     });
 });
 </script>
