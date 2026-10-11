@@ -53,9 +53,9 @@ body {
 <div class="footer">
 
 <svg width="110" height="80">
-    <rect id="key-u" x="40" y="10"  width="30" height="30" fill="#FFF" stroke="#000" stroke-width="1"/>
+    <rect id="key-u" x="40" y="10" width="30" height="30" fill="#FFF" stroke="#000" stroke-width="1"/>
     <rect id="key-d" x="40" y="40" width="30" height="30" fill="#FFF" stroke="#000" stroke-width="1"/>
-    <rect id="key-l" x="10"  y="40" width="30" height="30" fill="#FFF" stroke="#000" stroke-width="1"/>
+    <rect id="key-l" x="10" y="40" width="30" height="30" fill="#FFF" stroke="#000" stroke-width="1"/>
     <rect id="key-r" x="70" y="40" width="30" height="30" fill="#FFF" stroke="#000" stroke-width="1"/>
 </svg>
 
@@ -63,6 +63,8 @@ body {
 <script>
 // State
 let now = 0;
+let file = null;
+let bytes = null;
 
 function dec2hex(dec, len) {
     const s = dec.toString(16).toUpperCase();
@@ -70,11 +72,24 @@ function dec2hex(dec, len) {
     return s;
 }
 
-function refresh(bytes) {
-    // Traverse
+function move(step) {
+    if (file !== null) {
+        now += step;
+        refresh();
+    }
+}
+
+function refresh() {
+    // Info
     let num = 0;
     const len = bytes.length;
     const digits = dec2hex(len).length; // Quickly calculate the number of hexadecimal digits using a string
+    
+    // Range Limit
+    if (now < 0) now = 0;
+    if (now >= len) now = len - 1;
+    
+    // Traverse
     let output = [`<span class="title">${' '.repeat(digits)} 00 01 02 03 04 05 06 07</span>\n`];
     for (let i of bytes) {
         /*
@@ -114,12 +129,19 @@ document.getElementById('f').onchange = async e => {
     now = 0;
     
     // Read
-    const file = e.target.files[0];
+    file = e.target.files[0];
     const buf = await file.arrayBuffer(); // ArrayBuffer
-    const bytes = new Uint8Array(buf); // List of bytes
+    bytes = new Uint8Array(buf); // List of bytes
     
-    refresh(bytes);
+    refresh();
 }
+
+window.addEventListener('load', () => {
+    document.getElementById('key-u').addEventListener('click', () => move(-8));
+    document.getElementById('key-d').addEventListener('click', () => move(8));
+    document.getElementById('key-l').addEventListener('click', () => move(-1));
+    document.getElementById('key-r').addEventListener('click', () => move(1));
+});
 </script>
 
 </body>
