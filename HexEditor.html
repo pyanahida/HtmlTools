@@ -61,12 +61,15 @@ body {
 ---
 Format:
 Button | Keyboard: Descripe
+NUL: Not adapted
 ---
 You can swipe left or right on the screen to view more content
 &uarr;&darr;&larr;&rarr; | &uarr;&darr;&larr;&rarr;: Move cursor position
 L | left Shift: Switch to modify high nibble (Left 4 bits)
 R | right Shift: Switch to modify high nibble (Right 4 bits)
 0-F | 0-9 &amp; A-F: Modify the current value of nibble and automatically move 1 nibble backwards
+L+ | NUL: Insert "00" before the current position
+R+ | NUL: Insert "00" after the current position
 ---
 Due to browser limitations, loading large files may be slightly slower
 The loading speed of the device used by the author is approximately 200KiB/s (~1.6Mbps)
@@ -133,6 +136,12 @@ The loading speed of the device used by the author is approximately 200KiB/s (~1
     <text x="325" y="55" text-anchor="middle" dominant-baseline="middle" font-size="20" pointer-events="none">D</text>
     <text x="355" y="55" text-anchor="middle" dominant-baseline="middle" font-size="20" pointer-events="none">E</text>
     <text x="385" y="55" text-anchor="middle" dominant-baseline="middle" font-size="20" pointer-events="none">F</text>
+    
+    <!-- Other functions -->
+    <rect id="insert-left" x="400" y="10" width="30" height="30" fill="#FFF" stroke="#000" stroke-width="1"/>
+    <rect id="insert-right" x="400" y="40" width="30" height="30" fill="#FFF" stroke="#000" stroke-width="1"/>
+    <text x="415" y="25" text-anchor="middle" dominant-baseline="middle" font-size="16" pointer-events="none">L+</text>
+    <text x="415" y="55" text-anchor="middle" dominant-baseline="middle" font-size="16" pointer-events="none">R+</text>
 </svg>
 
 </div>
@@ -154,6 +163,8 @@ const hexArea = document.getElementById("hex-area");
 const highNiddle = document.getElementById("high");
 const lowNiddle = document.getElementById("low");
 const fileRead = document.getElementById('f');
+const leftInsert = document.getElementById('insert-left');
+const rightInsert = document.getElementById('insert-right');
 const generateKey = x => { return document.getElementById(`key-${x}`); }
 
 // Convenience function
@@ -174,6 +185,15 @@ function move(step) {
 // modify isHigh
 function switchHigh(newVal) {
     isHigh = newVal;
+    refresh();
+}
+
+// Insert
+function insert(atRight, newVal = 0) {
+    if (bytes === null) return;
+    
+    const index = atRight ? now + 1 : now;
+    bytes.splice(index, 0, newVal);
     refresh();
 }
 
@@ -295,6 +315,9 @@ window.addEventListener('load', () => {
     
     highNiddle.addEventListener('click', () => switchHigh(true));
     lowNiddle.addEventListener('click', () => switchHigh(false));
+    
+    leftInsert.addEventListener('click', () => insert(false));
+    rightInsert.addEventListener('click', () => insert(true));
     
     // The computer version is more convenient
     document.addEventListener('keydown', (e) => {
