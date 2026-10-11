@@ -53,10 +53,16 @@ body {
 <div class="footer">
 
 <svg width="110" height="80">
+    <!-- move -->
     <rect id="key-u" x="40" y="10" width="30" height="30" fill="#FFF" stroke="#000" stroke-width="1"/>
     <rect id="key-d" x="40" y="40" width="30" height="30" fill="#FFF" stroke="#000" stroke-width="1"/>
     <rect id="key-l" x="10" y="40" width="30" height="30" fill="#FFF" stroke="#000" stroke-width="1"/>
     <rect id="key-r" x="70" y="40" width="30" height="30" fill="#FFF" stroke="#000" stroke-width="1"/>
+    
+    <text x="55" y="25" text-anchor="middle" dominant-baseline="middle" font-size="20" pointer-events="none">&uarr;</text>
+    <text x="55" y="55" text-anchor="middle" dominant-baseline="middle" font-size="20" pointer-events="none">&darr;</text>
+    <text x="25" y="55" text-anchor="middle" dominant-baseline="middle" font-size="20" pointer-events="none">&larr;</text>
+    <text x="85" y="55" text-anchor="middle" dominant-baseline="middle" font-size="20" pointer-events="none">&rarr;</text>
 </svg>
 
 </div>
@@ -131,7 +137,7 @@ document.getElementById('f').onchange = async e => {
     // Read
     file = e.target.files[0];
     const buf = await file.arrayBuffer(); // ArrayBuffer
-    bytes = new Uint8Array(buf); // List of bytes
+    bytes = Array.from(new Uint8Array(buf)); // List of bytes
     
     refresh();
 }
