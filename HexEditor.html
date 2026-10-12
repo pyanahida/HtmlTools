@@ -82,7 +82,8 @@ R+ | NUL: Insert "00" after the current position
 to 0 | NUL: Set the current byte to 0
 ---
 The copy function:
-Input: There are two input boxes. The first one is for entering the starting point, and the second one is for entering the end point, including the starting point
+Input: There are two input boxes. The first one is for entering the starting point, and the second one is for entering the end point, including the starting point.
+       Input a hexdecimal number init, not decimal
 Select:
     - Copy hex: Copy the selected part as hexadecimal
     - Copy dec: Copy the selected part as decimal
@@ -183,7 +184,7 @@ Author: Pyanahida on github | 爱玩各种游戏的初中生 on bilibili
     <text x="445" y="55" text-anchor="middle" dominant-baseline="middle" font-size="12" pointer-events="none">to 0</text>
 </svg><br>
 
-<p>From <input id="range-start"> to <input id="range-end">: <select id="range-choice">
+<p>From <input placeholder="Hex num" id="range-start"> to <input placeholder="Hex num" id="range-end">: <select id="range-choice">
     <option value="copyhex">Copy hex</option>
     <option value="copydec">Copy dec</option>
     <option value="copybin">Copy bin</option>
