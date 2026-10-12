@@ -42,14 +42,21 @@ body {
     z-index: 1023;
     overflow-x: auto;
 }
+
+button.line {
+    width: 80vw;
+}
+button.inline {
+    width: 20vw;
+}
 </style>
 </head>
 <body>
 
 <!-- Get & Show -->
 <input type="file" id="f"><br>
-<button onclick="emptyCreate()">Create Empty</button><br>
-<button onclick="save()">Save</button><br>
+<button class="line" onclick="emptyCreate()">Create Empty</button><br>
+<button class="line" onclick="save()">Save</button><br>
 
 <!--
     The help document is placed here,
@@ -159,7 +166,9 @@ When the length is 1, it is not allowed to continue deleting
     <text x="445" y="55" text-anchor="middle" dominant-baseline="middle" font-size="12" pointer-events="none">to 0</text>
 </svg><br>
 
-<p>From <input id="range-start"> to <input id="range-end"></p>
+<p>From <input id="range-start"> to <input id="range-end">: <select id="range-choice">
+    <option value="copyhex">Copy hex</option>
+</select>. <button id="range-do" class="inline">Sure</button></p>
 
 </div>
 <script>
@@ -187,6 +196,8 @@ const delete_ = document.getElementById('delete'); // delete is keyword, so here
 const setZero = document.getElementById('setZero');
 const rangeS = document.getElementById('range-start');
 const rangeE = document.getElementById('range-end');
+const rangeC = document.getElementById('range-choice');
+const rangeD = document.getElementById('range-do');
 const generateKey = x => { return document.getElementById(`key-${x}`); }
 
 // Convenience function
@@ -215,6 +226,14 @@ function getChar(byte) {
         return real;
     }
     return ' ';
+}
+
+async function copyStr(str) {
+    try {
+        await navigator.clipboard.writeText(str);
+    } catch (err) {
+        alert(`An error happened: "${err}".`);
+    }
 }
 
 // Create empty
@@ -292,6 +311,39 @@ function edit(val) {
     }
     
     refresh();
+}
+
+
+
+// Things of copy
+function copies() {
+    if (bytes === null) {
+        return;
+    }
+    
+    const s = rangeS.value, e = rangeE.value;
+    const sp = parseInt(s, 16), ep = parseInt(e, 16); // p is short of "parsed"
+    
+    // left > right
+    if (sp > ep) {
+        alert("The start of the range cannot be larger than the end.");
+        return;
+    }
+    // larger than bytes
+    if ((sp >= bytes.length) || (ep >= bytes.length)) {
+        alert("The range you input cannot overflow byte range.");
+        return;
+    }
+    
+    // copy
+    switch (rangeC.value) {
+        case "copyhex": {
+            let temp = [];
+            for (let i = sp; i <= ep; i++) temp.push(dec2hex(temp[i], 2));
+            copyStr(temp.join(" "));
+        }
+        default: // ???
+    }
 }
 
 // Refresh
@@ -411,6 +463,8 @@ window.addEventListener('load', () => {
     
     leftInsert.addEventListener('click', () => insert(false));
     rightInsert.addEventListener('click', () => insert(true));
+    
+    rangeD.addEventListener('click', () => copies());
     
     // The computer version is more convenient
     document.addEventListener('keydown', (e) => {
