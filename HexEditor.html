@@ -71,7 +71,7 @@ R | right Shift: Switch to modify high nibble (Right 4 bits)
 0-F | 0-9 &amp; A-F: Modify the current value of nibble and automatically move 1 nibble backwards
 L+ | NUL: Insert "00" before the current position
 R+ | NUL: Insert "00" after the current position
-&#x232b; | NUL: Delete current byte
+&#x232b; | Delete / &#x232b;: Delete current byte
 to 0 | NUL: Set the current byte to 0
 ---
 Due to browser limitations, loading large files may be slightly slower
@@ -149,11 +149,17 @@ When the length is 1, it is not allowed to continue deleting
     <rect id="insert-right" x="400" y="40" width="30" height="30" fill="#FFF" stroke="#000" stroke-width="1"/>
     <rect id="delete" x="430" y="10" width="30" height="30" fill="#FFF" stroke="#000" stroke-width="1"/>
     <rect id="setZero" x="430" y="40" width="30" height="30" fill="#FFF" stroke="#000" stroke-width="1"/>
+    <!-- Replaced by rangeS&E else
+    <rect id="start-select" x="460" y="10" width="30" height="30" fill="#FFF" stroke="#000" stroke-width="1"/>
+    <rect id="end-select" x="460" y="40" width="30" height="30" fill="#FFF" stroke="#000" stroke-width="1"/>
+    -->
     <text x="415" y="25" text-anchor="middle" dominant-baseline="middle" font-size="16" pointer-events="none">L+</text>
     <text x="415" y="55" text-anchor="middle" dominant-baseline="middle" font-size="16" pointer-events="none">R+</text>
     <text x="445" y="25" text-anchor="middle" dominant-baseline="middle" font-size="20" pointer-events="none">&#x232b;</text>
     <text x="445" y="55" text-anchor="middle" dominant-baseline="middle" font-size="12" pointer-events="none">to 0</text>
-</svg>
+</svg><br>
+
+<p>From <input id="range-start"> to <input id="range-end"></p>
 
 </div>
 <script>
@@ -168,6 +174,7 @@ const colors = {
     isNibble:   "#F8B4B4",
     plain:      "#FFF"
 };
+const hexChars = /^[0-9a-fA-F]$/;
 
 // Dom
 const hexArea = document.getElementById("hex-area");
@@ -178,6 +185,8 @@ const leftInsert = document.getElementById('insert-left');
 const rightInsert = document.getElementById('insert-right');
 const delete_ = document.getElementById('delete'); // delete is keyword, so here's delete_
 const setZero = document.getElementById('setZero');
+const rangeS = document.getElementById('range-start');
+const rangeE = document.getElementById('range-end');
 const generateKey = x => { return document.getElementById(`key-${x}`); }
 
 // Convenience function
@@ -414,7 +423,9 @@ window.addEventListener('load', () => {
         else if (e.code === 'ShiftLeft') { switchHigh(true); }
         else if (e.code === 'ShiftRight') { switchHigh(false); }
         
-        else if (/^[0-9a-fA-F]$/.test(e.key)) {
+        else if (e.code === 'Backspace' || e.code === 'Delete') { del(); }
+        
+        else if (hexChars.test(e.key)) {
             edit(parseInt(e.key, 16));
         }
     });
@@ -423,6 +434,28 @@ window.addEventListener('load', () => {
     for (let i = 0; i < 16; i++) {
         document.getElementById(`edit-${dec2hex(i)}`).addEventListener('click', () => edit(i));
     }
+    
+    // loop
+    /* the past version which It is easy to cause the device to heat up
+    const mainLoop = setInterval(() => {
+        for (const i of [rangeS, rangeE]) {
+            let parsed = [];
+            for (const ch of i.value) {
+                if (hexChars.test(ch)) parsed.push(ch);
+            }
+            i.value = parsed.join("");
+        }
+    }, 15);
+    
+    // Never stop
+    // clearInterval(mainLoop);
+    */
+    
+    [rangeS, rangeE].forEach(el => {
+        el.addEventListener('input', () => {
+            el.value = el.value.replace(/[^0-9a-fA-F]/g, '');
+        });
+    });
 });
 </script>
 
