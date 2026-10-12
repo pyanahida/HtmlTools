@@ -194,6 +194,7 @@ Author: Pyanahida on github | 爱玩各种游戏的初中生 on bilibili
     <option value="copybase64">Copy Base64</option>
     <option value="copysha1">Copy SHA1</option>
     <option value="copymd5">Copy MD5</option>
+    <option value="inspect">Inspect (Beta, WIP)</option>
 </select>. <button id="range-do" class="inline">Sure</button></p>
 
 </div>
@@ -391,7 +392,7 @@ async function copies() {
             break;
         }
         case "copybase64": {
-            const temp = bytes.slice(sp, ep);
+            const temp = bytes.slice(sp, ep + 1);
             const uint8 = new Uint8Array(temp);
             
             let binary = '';
@@ -404,7 +405,7 @@ async function copies() {
             break;
         }
         case "copysha1": {
-            const temp = bytes.slice(sp, ep);
+            const temp = bytes.slice(sp, ep + 1);
             
             const uint8 = new Uint8Array(temp);
             const hashBuffer = await crypto.subtle.digest('SHA-1', uint8);
@@ -416,8 +417,29 @@ async function copies() {
             break;
         }
         case "copymd5": {
-            const temp = bytes.slice(sp, ep);
+            const temp = bytes.slice(sp, ep + 1);
             copyStr(bytesToMD5(temp));
+            break;
+        }
+        case "inspect": {
+            let data = bytes.splice(sp, ep + 1);
+            if (data.length > 8) data = data.splice(0, 8)
+            let output;
+            
+            // Show
+            let display = [];
+            for (let i of data) {
+                display.push(dec2hex(i, 2));
+            }
+            output.push(`Inspect: ${display.join('')}`);
+            
+            // Byte
+            const byteVal = data[0];
+            output.push(`Byte: ${(byteVal < 0x80) ? byteVal : byteVal - 0x100}`);
+            output.push(`Unsigned Byte: ${byteVal}`);
+            
+            // end
+            alert(output.join('\n'));
             break;
         }
         default: // ???
