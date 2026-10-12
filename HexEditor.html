@@ -88,6 +88,7 @@ Select:
     - Copy dec: Copy the selected part as decimal
     - Copy bin: Copy the selected part as binary
     - Copy ascii: Copy the selected part as ASCII, 0x80~0xFF output &#xfffd;
+    - Copy base64: Copy the selected part as base64 (0-9A-Za-z/+=, not URL-safe)
 Sure: Press the sure button to copy
 ---
 Due to browser limitations, loading large files may be slightly slower
@@ -101,6 +102,9 @@ Statement:
 Author: Pyanahida on github | 爱玩各种游戏的初中生 on bilibili
 &#xa9; 2026 Oct
 </p>
+
+<!-- Console will cover the main text, so set many a <br> at here -->
+<br><br><br><br><br><br><br><br><br><br><br>
 
 <!-- Console -->
 <div class="footer">
@@ -184,6 +188,7 @@ Author: Pyanahida on github | 爱玩各种游戏的初中生 on bilibili
     <option value="copydec">Copy dec</option>
     <option value="copybin">Copy bin</option>
     <option value="copyascii">Copy ascii</option>
+    <option value="copybase64">Copy base64</option>
 </select>. <button id="range-do" class="inline">Sure</button></p>
 
 </div>
@@ -378,6 +383,19 @@ function copies() {
                 temp.push( (0x0 <= v) && (v < 0x80) ? String.fromCharCode(v) : "\uFFFD" );
             }
             copyStr(temp.join(" "));
+            break;
+        }
+        case "copybase64": {
+            const temp = bytes.slice(sp, ep);
+            const uint8 = new Uint8Array(temp);
+            
+            let binary = '';
+            const chunkSize = 0x8000; // 32KB per block
+            for (let i = 0; i < uint8.length; i += chunkSize) {
+                const chunk = uint8.subarray(i, i + chunkSize);
+                binary += String.fromCharCode.apply(null, chunk);
+            }
+            copyStr(btoa(binary));
             break;
         }
         default: // ???
