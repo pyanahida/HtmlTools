@@ -81,6 +81,15 @@ R+ | NUL: Insert "00" after the current position
 &#x232b; | Delete / &#x232b;: Delete current byte
 to 0 | NUL: Set the current byte to 0
 ---
+The copy function:
+Input: There are two input boxes. The first one is for entering the starting point, and the second one is for entering the end point, including the starting point
+Select:
+    - Copy hex: Copy the selected part as hexadecimal
+    - Copy dec: Copy the selected part as decimal
+    - Copy bin: Copy the selected part as binary
+    - Copy ascii: Copy the selected part as ASCII, 0x80~0xFF output &#xfffd;
+Sure: Press the sure button to copy
+---
 Due to browser limitations, loading large files may be slightly slower
 The loading speed of the device used by the author is approximately 200KiB/s (~1.6Mbps)
 ---
@@ -172,6 +181,9 @@ Author: Pyanahida on github | 爱玩各种游戏的初中生 on bilibili
 
 <p>From <input id="range-start"> to <input id="range-end">: <select id="range-choice">
     <option value="copyhex">Copy hex</option>
+    <option value="copydec">Copy dec</option>
+    <option value="copybin">Copy bin</option>
+    <option value="copyascii">Copy ascii</option>
 </select>. <button id="range-do" class="inline">Sure</button></p>
 
 </div>
@@ -344,6 +356,27 @@ function copies() {
         case "copyhex": {
             let temp = [];
             for (let i = sp; i <= ep; i++) temp.push(dec2hex(bytes[i], 2));
+            copyStr(temp.join(" "));
+            break;
+        }
+        case "copydec": {
+            let temp = [];
+            for (let i = sp; i <= ep; i++) temp.push(`${bytes[i]}`);
+            copyStr(temp.join(" "));
+            break;
+        }
+        case "copybin": {
+            let temp = [];
+            for (let i = sp; i <= ep; i++) temp.push((bytes[i]).toString(2).padStart(8, '0'));
+            copyStr(temp.join(" "));
+            break;
+        }
+        case "copyascii": {
+            let temp = [];
+            for (let i = sp; i <= ep; i++) {
+                const v = bytes[i];
+                temp.push( (0x0 <= v) && (v < 0x80) ? String.fromCharCode(v) : "\uFFFD" );
+            }
             copyStr(temp.join(" "));
             break;
         }
