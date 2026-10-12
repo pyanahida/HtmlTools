@@ -87,6 +87,10 @@ The loading speed of the device used by the author is approximately 200KiB/s (~1
 Characteristic:
 Incoming empty files will become "00".
 When the length is 1, it is not allowed to continue deleting
+---
+Statement:
+Author: Pyanahida on github | 爱玩各种游戏的初中生 on bilibili
+&#xa9; 2026 Oct
 </p>
 
 <!-- Console -->
@@ -339,8 +343,9 @@ function copies() {
     switch (rangeC.value) {
         case "copyhex": {
             let temp = [];
-            for (let i = sp; i <= ep; i++) temp.push(dec2hex(temp[i], 2));
+            for (let i = sp; i <= ep; i++) temp.push(dec2hex(bytes[i], 2));
             copyStr(temp.join(" "));
+            break;
         }
         default: // ???
     }
