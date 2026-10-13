@@ -186,7 +186,7 @@ Author: Pyanahida on github | 爱玩各种游戏的初中生 on bilibili
     <text x="445" y="55" text-anchor="middle" dominant-baseline="middle" font-size="12" pointer-events="none">to 0</text>
 </svg><br>
 
-<p>From <input placeholder="Hex num" id="range-start"> to <input placeholder="Hex num" id="range-end">: <select id="range-choice">
+<p style="white-space: pre;">From <input placeholder="Hex num" id="range-start"> to <input placeholder="Hex num" id="range-end">: <select id="range-choice">
     <option value="copyhex">Copy Hex</option>
     <option value="copydec">Copy Dec</option>
     <option value="copybin">Copy Bin</option>
@@ -196,7 +196,7 @@ Author: Pyanahida on github | 爱玩各种游戏的初中生 on bilibili
     <option value="copymd5">Copy MD5</option>
     <option value="copycrc32">Copy MD5</option>
     <option value="inspect">Inspect (Beta, WIP)</option>
-</select>. <button id="range-do" class="inline">Sure</button></p>
+</select>. <button id="range-do" class="inline">Sure</button>                         </p>
 
 </div>
 <script>
@@ -444,6 +444,12 @@ async function copies() {
             output.push(`Byte: ${(byteVal < 0x80) ? byteVal : byteVal - 0x100}`);
             output.push(`Unsigned Byte: ${byteVal}`);
             
+            // Short
+            const uShort = data[0] | (data[1] << 8);
+            if (uShort & 0x8000) const Short = uShort - 0x10000;
+            output.push(`Short: ${Short}`);
+            output.push(`Unsigned Short: ${uShort}`);
+            
             // end
             alert(output.join('\n'));
             break;
@@ -451,6 +457,167 @@ async function copies() {
         default: // ???
     }
 }
+
+const inspectPythonCodeGeneratedByDeepseek = `
+# 1. 原始数据：Python List
+data_list = [0x49, 0x73, 0x20, 0x77, 0x68, 0x61, 0x74, 0x20]
+
+print(f"原始 List: {[hex(x) for x in data_list]}")
+print("-" * 40)
+
+# ==========================================
+# 2. 字节 (Byte)
+# ==========================================
+byte_val = data_list[0]
+print(f"字节: {byte_val}")
+print(f"字节(无符号): {byte_val}")
+
+# ==========================================
+# 3. 短整数 (Short) - 手工拼接 2 个字节
+# ==========================================
+# 小端模式：低位在前。所以第0个元素是低位，第1个元素是高位
+short_val = data_list[0] | (data_list[1] << 8)
+# 有符号处理：如果最高位（第15位）是1，说明是负数，需要减去 2^16
+if short_val & 0x8000:
+    short_val -= 0x10000
+short_uval = data_list[0] | (data_list[1] << 8)
+
+print(f"短整数: {short_val}")
+print(f"短整数(无符号): {short_uval}")
+
+# ==========================================
+# 4. 整数 (Integer) - 手工拼接 4 个字节
+# ==========================================
+int_val = (data_list[0] | 
+           (data_list[1] << 8) | 
+           (data_list[2] << 16) | 
+           (data_list[3] << 24))
+# 有符号处理：最高位是第31位
+if int_val & 0x80000000:
+    int_val -= 0x100000000
+int_uval = (data_list[0] | 
+            (data_list[1] << 8) | 
+            (data_list[2] << 16) | 
+            (data_list[3] << 24))
+
+print(f"整数: {int_val}")
+print(f"整数(无符号): {int_uval}")
+
+# ==========================================
+# 5. 长整数 (Long) - 手工拼接 8 个字节
+# ==========================================
+long_val = 0
+for i in range(8):
+    long_val |= data_list[i] << (8 * i)
+
+# 有符号处理：最高位是第63位
+if long_val & 0x8000000000000000:
+    long_val -= 0x10000000000000000
+long_uval = 0
+for i in range(8):
+    long_uval |= data_list[i] << (8 * i)
+
+print(f"长整数: {long_val}")
+print(f"长整数(无符号): {long_uval}")
+
+# ==========================================
+# 6. 浮点数 (Float) - 手工解析 IEEE 754 单精度
+# ==========================================
+# 先拼出 32 位的无符号整数（小端）
+f_bits = int_uval 
+
+# 提取符号位 (第31位)
+sign = -1 if (f_bits >> 31) & 1 else 1
+# 提取指数位 (第23-30位，共8位)
+exponent = (f_bits >> 23) & 0xFF
+# 提取尾数位 (第0-22位，共23位)
+mantissa = f_bits & 0x7FFFFF
+
+# 按照 IEEE 754 公式计算: (-1)^sign * 2^(exponent-127) * (1 + 尾数/2^23)
+if exponent == 0:
+    float_val = sign * (mantissa / (2**23)) * (2 ** -126)
+elif exponent == 255:
+    float_val = float('inf') if mantissa == 0 else float('nan')
+else:
+    float_val = sign * (1 + mantissa / (2**23)) * (2 ** (exponent - 127))
+
+print(f"浮点数: {float_val}")
+
+# ==========================================
+# 7. 双精度浮点数 (Double) - 手工解析 IEEE 754 双精度
+# ==========================================
+# 拼出 64 位无符号整数（小端）
+d_bits = long_uval
+
+# 提取符号位 (第63位)
+sign_d = -1 if (d_bits >> 63) & 1 else 1
+# 提取指数位 (第52-62位，共11位)
+exponent_d = (d_bits >> 52) & 0x7FF
+# 提取尾数位 (第0-51位，共52位)
+mantissa_d = d_bits & 0xFFFFFFFFFFFFF
+
+# 按照 IEEE 754 双精度公式计算
+if exponent_d == 0:
+    double_val = sign_d * (mantissa_d / (2**52)) * (2 ** -1022)
+elif exponent_d == 2047:
+    double_val = float('inf') if mantissa_d == 0 else float('nan')
+else:
+    double_val = sign_d * (1 + mantissa_d / (2**52)) * (2 ** (exponent_d - 1023))
+
+print(f"双精度浮点数: {double_val}")
+
+----
+
+import struct
+
+# 1. 原始数据：Python List，元素是十进制整数（对应十六进制 49, 73...）
+data_list = [0x49, 0x73, 0x20, 0x77, 0x68, 0x61, 0x74, 0x20]
+
+# 为了后续方便切片和处理，先把它转成 bytes 对象
+data_bytes = bytes(data_list)
+
+print(f"原始 List: {data_list}")
+print("-" * 40)
+
+# 2. 字节 (Byte) - 读取 List 的第1个元素
+# 直接取列表第一个元素即可
+byte_val = data_list[0]
+print(f"字节: {byte_val}")
+print(f"字节(无符号): {byte_val}")
+
+# 3. 短整数 (Short) - 读取前2个字节
+# 用 bytes 切片 [0:2]，小端解析
+short_val = int.from_bytes(data_bytes[0:2], byteorder='little', signed=True)
+short_uval = int.from_bytes(data_bytes[0:2], byteorder='little', signed=False)
+print(f"短整数: {short_val}")
+print(f"短整数(无符号): {short_uval}")
+
+# 4. 整数 (Integer) - 读取前4个字节
+# 用 bytes 切片 [0:4]，小端解析
+int_val = int.from_bytes(data_bytes[0:4], byteorder='little', signed=True)
+int_uval = int.from_bytes(data_bytes[0:4], byteorder='little', signed=False)
+print(f"整数: {int_val}")
+print(f"整数(无符号): {int_uval}")
+
+# 5. 长整数 (Long) - 读取全部8个字节
+# 用 bytes 切片 [0:8]，小端解析
+long_val = int.from_bytes(data_bytes[0:8], byteorder='little', signed=True)
+long_uval = int.from_bytes(data_bytes[0:8], byteorder='little', signed=False)
+print(f"长整数: {long_val}")
+print(f"长整数(无符号): {long_uval}")
+
+# 6. 浮点数 (Float) - 读取前4个字节
+# 用 bytes 切片 [0:4]，struct.unpack 解析
+# '<' 代表小端模式, 'f' 代表 float
+float_val = struct.unpack('<f', data_bytes[0:4])[0]
+print(f"浮点数: {float_val}")
+
+# 7. 双精度浮点数 (Double) - 读取全部8个字节
+# 用 bytes 切片 [0:8]，struct.unpack 解析
+# '<' 代表小端模式, 'd' 代表 double
+double_val = struct.unpack('<d', data_bytes[0:8])[0]
+print(f"双精度浮点数: {double_val}")
+`;
 
 // Refresh
 function refresh() {
