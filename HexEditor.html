@@ -430,6 +430,10 @@ async function copies() {
         case "inspect": {
             let data = bytes.slice(sp, ep + 1);
             if (data.length > 8) data = data.slice(0, 8); // truncate overflow
+            // Switch all to bigint
+            for (let i in data) {
+                data[i] = BigInt(data[i]);
+            }
             let l = data.length;
             let output = [];
             
@@ -442,22 +446,32 @@ async function copies() {
             
             // Byte
             const byteVal = data[0];
-            output.push(`Byte: ${(byteVal < 0x80) ? byteVal : byteVal - 0x100}`);
+            output.push(`Byte: ${(byteVal < 0x80n) ? byteVal : byteVal - 0x100n}`);
             output.push(`Unsigned Byte: ${byteVal}`);
             
             // Short
             if (l >= 2) {
-                const uShort = data[0] | (data[1] << 8);
-                let Short;
-                if (uShort & 0x8000n) Short = uShort - 0x10000;
-                output.push(`Short: ${Short}`);
-                output.push(`Unsigned Short: ${uShort}`);
+                const shortU = data[0] | (data[1] << 8n);
+                let short = shortU;
+                if (shortU & 0x8000n) short = shortU - 0x10000n;
+                output.push(`Short: ${short}`);
+                output.push(`Unsigned Short: ${shortU}`);
             } else {
                 output.push(`Short: -`);
                 output.push(`Unsigned Short: -`);
             }
             
             // Int
+            let intU, int;
+            if (l >= 4) {
+                intU = data[0] | (data[1] << 8n) | (data[2] << 16n) | (data[3] << 24n);
+                int = intU;
+                if (intU & 0x80000000n) int = intU - 0x100000000n;
+            } else {
+                int = intU = "-";
+            }
+            output.push(`Int: ${int}`);
+            output.push(`Unsigned Int: ${intU}`);
             
             // end
             alert(output.join('\n'));
