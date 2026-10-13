@@ -428,9 +428,9 @@ async function copies() {
             break;
         }
         case "inspect": {
-            let data = bytes.splice(sp, ep + 1);
-            if (data.length > 8) data = data.splice(0, 8)
-            let output;
+            let data = bytes.slice(sp, ep + 1);
+            if (data.length > 8) data = data.slice(0, 8)
+            let output = [];
             
             // Show
             let display = [];
@@ -446,7 +446,8 @@ async function copies() {
             
             // Short
             const uShort = data[0] | (data[1] << 8);
-            if (uShort & 0x8000) const Short = uShort - 0x10000;
+            let Short;
+            if (uShort & 0x8000) Short = uShort - 0x10000;
             output.push(`Short: ${Short}`);
             output.push(`Unsigned Short: ${uShort}`);
             
