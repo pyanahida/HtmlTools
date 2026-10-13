@@ -194,6 +194,7 @@ Author: Pyanahida on github | 爱玩各种游戏的初中生 on bilibili
     <option value="copybase64">Copy Base64</option>
     <option value="copysha1">Copy SHA1</option>
     <option value="copymd5">Copy MD5</option>
+    <option value="copycrc32">Copy MD5</option>
     <option value="inspect">Inspect (Beta, WIP)</option>
 </select>. <button id="range-do" class="inline">Sure</button></p>
 
@@ -419,6 +420,11 @@ async function copies() {
         case "copymd5": {
             const temp = bytes.slice(sp, ep + 1);
             copyStr(bytesToMD5(temp));
+            break;
+        }
+        case "copycrc32": {
+            const temp = bytes.slice(sp, ep + 1);
+            copyStr(bytesToCRC32(temp));
             break;
         }
         case "inspect": {
@@ -700,6 +706,30 @@ function bytesToMD5(bytes) {
     return Array.from(digest)
         .map(b => b.toString(16).padStart(2, '0'))
         .join('');
+}
+
+function bytesToCRC32(bytes) {
+    // generate a searching table in advance
+    const table = (() => {
+        const t = new Uint32Array(256);
+        for (let n = 0; n < 256; n++) {
+            let c = n;
+            for (let k = 0; k < 8; k++) {
+                c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+            }
+            t[n] = c >>> 0;
+        }
+        return t;
+    })();
+
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) {
+        crc = (crc >>> 8) ^ table[(crc ^ bytes[i]) & 0xFF];
+    }
+    crc = (crc ^ 0xFFFFFFFF) >>> 0;
+
+    // return hex str ( 8 chars )
+    return crc.toString(16).padStart(8, '0');
 }
 </script>
 
