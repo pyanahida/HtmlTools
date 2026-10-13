@@ -429,7 +429,8 @@ async function copies() {
         }
         case "inspect": {
             let data = bytes.slice(sp, ep + 1);
-            if (data.length > 8) data = data.slice(0, 8)
+            if (data.length > 8) data = data.slice(0, 8); // truncate overflow
+            let l = data.length;
             let output = [];
             
             // Show
@@ -445,11 +446,18 @@ async function copies() {
             output.push(`Unsigned Byte: ${byteVal}`);
             
             // Short
-            const uShort = data[0] | (data[1] << 8);
-            let Short;
-            if (uShort & 0x8000) Short = uShort - 0x10000;
-            output.push(`Short: ${Short}`);
-            output.push(`Unsigned Short: ${uShort}`);
+            if (l >= 2) {
+                const uShort = data[0] | (data[1] << 8);
+                let Short;
+                if (uShort & 0x8000n) Short = uShort - 0x10000;
+                output.push(`Short: ${Short}`);
+                output.push(`Unsigned Short: ${uShort}`);
+            } else {
+                output.push(`Short: -`);
+                output.push(`Unsigned Short: -`);
+            }
+            
+            // Int
             
             // end
             alert(output.join('\n'));
