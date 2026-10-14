@@ -61,7 +61,6 @@ window.onerror = function(m, src, line, col){
 /* ================= 基础参数 ================= */
 const NOTE_SPEED = 200;
 const HIT_WINDOW = 0.060;
-const START_TIME = -8;
 const TOUCH_RADIUS = 100;
 
 const MAX_HP = 80;
@@ -89,6 +88,9 @@ let combo = 0, maxCombo = 0;
 
 function t2s(t){ return t * 60 / chart.bpm; }
 function s2t(s){ return s * chart.bpm / 60; }
+
+/* 起始时间：-bpm/30，等效提前 2 秒 */
+function startTime(){ return -chart.bpm / 30; }
 
 /* ================= 解析 XML ================= */
 function parseChart(xmlDoc){
@@ -228,7 +230,7 @@ function buildSvgForLines(){
     }
 
     const railLabels = [];
-    const g0 = lineGeom(l, START_TIME);
+    const g0 = lineGeom(l, startTime());
     l.rails.forEach((letter, i)=>{
       const el = document.createElementNS('http://www.w3.org/2000/svg','text');
       el.textContent = letter;
@@ -446,7 +448,7 @@ svg.addEventListener('mousedown', e=>{
 });
 
 /* ================= 主循环 ================= */
-let currentTime = START_TIME;
+let currentTime = 0;
 let lastTs = 0;
 let running = false;
 
@@ -484,7 +486,7 @@ document.getElementById('fileInput').onchange = (e)=>{
       updateHud();
       gameoverEl.style.display = 'none';
 
-      currentTime = START_TIME;
+      currentTime = startTime();
       lastTs = 0;
       running = true;
       requestAnimationFrame(loop);
