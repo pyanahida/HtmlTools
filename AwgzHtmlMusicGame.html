@@ -106,9 +106,9 @@ const SCORE_PERFECT = 5;
 const HP_MISS = -5;
 const END_DELAY = 1.0;
 
-let noteSpeed = 200;         // px/s
-let hitWindowMs = 60;        // 判定窗口（毫秒）
-let hitWindow = 0.060;       // 换算成秒
+let noteSpeed = 200;
+let hitWindowMs = 60;
+let hitWindow = 0.060;
 
 const svg = document.getElementById('stage');
 const comboEl = document.getElementById('combo');
@@ -138,10 +138,11 @@ let hp = MAX_HP;
 let combo = 0, maxCombo = 0;
 let perfectCount = 0, missCount = 0;
 
-const heldKeys = new Set();
-const heldRails = new Set();
-const touchMap = new Map();
-const railHoldCount = new Map();
+/* 输入状态 */
+const heldKeys = new Set();       // 键盘按住的字母
+const heldRails = new Set();      // 当前被按住的轨（键盘或触摸）
+const touchMap = new Map();       // identifier -> rail（该手指当前所在轨，可为 null）
+const railHoldCount = new Map();  // rail -> 触点数（仅统计触摸）
 
 function t2s(t){ return t * 60 / chart.bpm; }
 function s2t(s){ return s * chart.bpm / 60; }
@@ -596,6 +597,7 @@ function railAtPoint(clientX, clientY){
   return bestRail;
 }
 
+/* 轨按住计数（仅触屏用，键盘不计数） */
 function addRailHold(rail){
   const n = (railHoldCount.get(rail) || 0) + 1;
   railHoldCount.set(rail, n);
@@ -611,29 +613,48 @@ function removeRailHold(rail){
   }
 }
 
+/* 触摸开始 */
 svg.addEventListener('touchstart', e=>{
   e.preventDefault();
   if(!chart || !running) return;
   for(const t of e.changedTouches){
     const rail = railAtPoint(t.clientX, t.clientY);
-    if(!rail) continue;
-    touchMap.set(t.identifier, rail);
-    addRailHold(rail);
-    judgeKeyDown(rail);
+    touchMap.set(t.identifier, rail);   // 即使 null 也记录，避免混乱
+    if(rail){
+      addRailHold(rail);
+      judgeKeyDown(rail);               // t 判定
+    }
   }
 }, {passive:false});
 
+/* 触摸移动：更新每根手指所在轨 */
+svg.addEventListener('touchmove', e=>{
+  e.preventDefault();
+  if(!chart || !running) return;
+  for(const t of e.changedTouches){
+    if(!touchMap.has(t.identifier)) continue;
+    const oldRail = touchMap.get(t.identifier);
+    const newRail = railAtPoint(t.clientX, t.clientY);
+    if(oldRail === newRail) continue;
+    if(oldRail) removeRailHold(oldRail);
+    if(newRail) addRailHold(newRail);
+    touchMap.set(t.identifier, newRail);
+  }
+}, {passive:false});
+
+/* 触摸结束：按 identifier 释放 */
 function endTouches(e){
   for(const t of e.changedTouches){
+    if(!touchMap.has(t.identifier)) continue;
     const rail = touchMap.get(t.identifier);
-    if(rail === undefined) continue;
     touchMap.delete(t.identifier);
-    removeRailHold(rail);
+    if(rail) removeRailHold(rail);
   }
 }
 svg.addEventListener('touchend', e=>{ e.preventDefault(); endTouches(e); }, {passive:false});
-svg.addEventListener('touchcancel', e=>{ endTouches(e); }, {passive:false});
+svg.addEventListener('touchcancel', e=>{ e.preventDefault(); endTouches(e); }, {passive:false});
 
+/* 鼠标（单点） */
 svg.addEventListener('mousedown', e=>{
   if(!chart || !running) return;
   const rail = railAtPoint(e.clientX, e.clientY);
