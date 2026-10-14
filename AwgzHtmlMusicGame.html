@@ -108,19 +108,18 @@ const SCORE_GOOD = 3;
 const HP_MISS = -5;
 const END_DELAY = 1.0;
 
-/* 判定窗口（毫秒） */
 const MODES = [
-  { p: 20,  g: 40  },  // 极限
-  { p: 40,  g: 70  },  // 严格
-  { p: 60,  g: 90  },  // 一般
-  { p: 80,  g: 110 },  // 轻松
-  { p: 110, g: 140 },  // 闭眼
-  { p: 160, g: 250 }   // 自由
+  { p: 20,  g: 40  },
+  { p: 40,  g: 70  },
+  { p: 60,  g: 90  },
+  { p: 80,  g: 110 },
+  { p: 110, g: 140 },
+  { p: 160, g: 250 }
 ];
 
 let noteSpeed = 200;
-let perfectWindow = 0.060;   // 秒
-let goodWindow = 0.090;      // 秒
+let perfectWindow = 0.060;
+let goodWindow = 0.090;
 
 const svg = document.getElementById('stage');
 const comboEl = document.getElementById('combo');
@@ -144,17 +143,21 @@ const fileInput = document.getElementById('fileInput');
 let chart = null;
 let points = {};
 let lines  = [];
-let taps   = [];
+let notes  = [];   // 统一：t/d/h
 
 let score = 0;
 let hp = MAX_HP;
 let combo = 0, maxCombo = 0;
 let perfectCount = 0, goodCount = 0, missCount = 0;
 
+/* 输入状态 */
 const heldKeys = new Set();
 const heldRails = new Set();
 const touchMap = new Map();
 const railHoldCount = new Map();
+
+/* 按住计数（键盘+触屏统一），用于 hold 尾判 out 检测“计数变化” */
+const holdCount = new Map();   // rail -> 计数
 
 function t2s(t){ return t * 60 / chart.bpm; }
 function s2t(s){ return s * chart.bpm / 60; }
@@ -168,7 +171,7 @@ function parseChart(xmlDoc){
     bpm: parseFloat(root.getAttribute('bpm')) || 60,
     points: {},
     lines: [],
-    taps: [],
+    notes: [],
     events: []
   };
 
@@ -191,14 +194,26 @@ function parseChart(xmlDoc){
     });
   });
 
-  root.querySelectorAll('taps > t, taps > d').forEach(el=>{
-    const isDrag = el.tagName.toLowerCase() === 'd';
-    c.taps.push({
-      line: el.getAttribute('online'),
-      rail: el.getAttribute('onrail'),
-      time: parseFloat(el.getAttribute('time')),
-      type: isDrag ? 'drag' : 'tap'
-    });
+  // t / d / h
+  root.querySelectorAll('taps > t, taps > d, taps > h').forEach(el=>{
+    const tag = el.tagName.toLowerCase();
+    if(tag === 'h'){
+      c.notes.push({
+        type: 'hold',
+        line: el.getAttribute('online'),
+        rail: el.getAttribute('onrail'),
+        startTime: parseFloat(el.getAttribute('startTime')),
+        endTime: parseFloat(el.getAttribute('endTime')),
+        endType: (el.getAttribute('endType') || 'free')
+      });
+    } else {
+      c.notes.push({
+        type: tag === 'd' ? 'drag' : 'tap',
+        line: el.getAttribute('online'),
+        rail: el.getAttribute('onrail'),
+        time: parseFloat(el.getAttribute('time'))
+      });
+    }
   });
 
   root.querySelectorAll('events > pointmove').forEach(m=>{
@@ -266,15 +281,41 @@ function buildRuntime(c){
     };
   });
 
-  taps = c.taps.map(t=>({
-    lineId: t.line,
-    rail: t.rail,
-    time: t.time,
-    type: t.type,
-    hit: false,
-    missed: false,
-    el: null
-  }));
+  notes = c.notes.map(n=>{
+    if(n.type === 'hold'){
+      const t = n.endTime - n.startTime;
+      return {
+        type: 'hold',
+        lineId: n.line,
+        rail: n.rail,
+        startTime: n.startTime,
+        endTime: n.endTime,
+        endType: n.endType,
+        duration: t,
+        // none 的有效结束
+        effEnd: n.endType === 'none' ? (n.endTime - t/16) : n.endTime,
+        // 状态
+        headHit: false,      // 头判已命中
+        active: false,       // 当前处于按住状态
+        failed: false,       // 中途失败
+        done: false,         // 整体完成（成功或失败）
+        comboAcc: 0,         // 已累加的中间 combo 数（按 0.25 拍）
+        // 记录按住计数历史，用于 out 尾判
+        tailCountAt: null,   // 尾判窗口内的初始计数快照
+        el: null, tailEl: null
+      };
+    } else {
+      return {
+        type: n.type,
+        lineId: n.line,
+        rail: n.rail,
+        time: n.time,
+        hit: false,
+        missed: false,
+        el: null
+      };
+    }
+  });
 
   songNameEl.textContent = c.name ? (c.name + '  BPM:' + c.bpm) : '';
 }
@@ -365,13 +406,30 @@ function buildSvgForLines(){
       railLabels.push(el);
     });
 
-    taps.forEach(tap=>{
-      if(tap.lineId !== l.id) return;
-      const el = document.createElementNS('http://www.w3.org/2000/svg','rect');
-      el.setAttribute('fill','#fff');
-      el.setAttribute('opacity','0');
-      svg.appendChild(el);
-      tap.el = el;
+    // 音符元素
+    notes.forEach(n=>{
+      if(n.lineId !== l.id) return;
+      if(n.type === 'hold'){
+        // 主体矩形
+        const el = document.createElementNS('http://www.w3.org/2000/svg','rect');
+        el.setAttribute('fill','#fff');
+        el.setAttribute('opacity','0');
+        svg.appendChild(el);
+        n.el = el;
+        // 尾端描边
+        const tailEl = document.createElementNS('http://www.w3.org/2000/svg','line');
+        tailEl.setAttribute('stroke','#fff');
+        tailEl.setAttribute('stroke-width','4');
+        tailEl.setAttribute('opacity','0');
+        svg.appendChild(tailEl);
+        n.tailEl = tailEl;
+      } else {
+        const el = document.createElementNS('http://www.w3.org/2000/svg','rect');
+        el.setAttribute('fill','#fff');
+        el.setAttribute('opacity','0');
+        svg.appendChild(el);
+        n.el = el;
+      }
     });
 
     svgLines[l.id] = { lineEl, borders, railLabels, railCount };
@@ -384,6 +442,15 @@ function setInfiniteLine(el, cx, cy, ux, uy){
   el.setAttribute('y1', cy - uy*FAR);
   el.setAttribute('x2', cx + ux*FAR);
   el.setAttribute('y2', cy + uy*FAR);
+}
+
+/* 计算音符在轨道上的落点（沿法向偏移 dist） */
+function notePos(g, railIndex, railCount, dist){
+  const center = railCenter(g, railIndex, railCount);
+  return {
+    x: center.x - g.vx * dist,
+    y: center.y - g.vy * dist
+  };
 }
 
 function render(nowTime){
@@ -423,36 +490,71 @@ function render(nowTime){
     }
   }
 
-  taps.forEach(tap=>{
-    const el = tap.el;
-    if(!el) return;
-    if(tap.hit || tap.missed){ el.setAttribute('opacity','0'); return; }
-
-    const l = lines.find(x=>x.id===tap.lineId);
-    if(!l){ el.setAttribute('opacity','0'); return; }
+  const angCache = {};
+  notes.forEach(n=>{
+    if(!n.el) return;
+    const l = lines.find(x=>x.id===n.lineId);
+    if(!l){ n.el.setAttribute('opacity','0'); if(n.tailEl) n.tailEl.setAttribute('opacity','0'); return; }
     const g = lineGeom(l, nowTime);
     const railCount = l.rails.length;
-    const railIndex = l.rails.indexOf(tap.rail);
-    if(railIndex < 0){ el.setAttribute('opacity','0'); return; }
-
-    const center = railCenter(g, railIndex, railCount);
+    const railIndex = l.rails.indexOf(n.rail);
+    if(railIndex < 0){ n.el.setAttribute('opacity','0'); if(n.tailEl) n.tailEl.setAttribute('opacity','0'); return; }
     const rectW = g.len / railCount;
-    const rectH = tap.type === 'drag' ? rectW / 15 : rectW / 6;
-
-    const dtSec = t2s(tap.time - nowTime);
-    const dist = noteSpeed * dtSec;
-
-    const ncx = center.x - g.vx * dist;
-    const ncy = center.y - g.vy * dist;
-
-    el.setAttribute('x', ncx - rectW/2);
-    el.setAttribute('y', ncy - rectH/2);
-    el.setAttribute('width', rectW);
-    el.setAttribute('height', rectH);
-    el.setAttribute('opacity','1');
-
     const ang = Math.atan2(g.uy, g.ux) * 180/Math.PI;
-    el.setAttribute('transform', `rotate(${ang} ${ncx} ${ncy})`);
+
+    if(n.type === 'hold'){
+      if(n.done && !n.failed){
+        n.el.setAttribute('opacity','0');
+        if(n.tailEl) n.tailEl.setAttribute('opacity','0');
+        return;
+      }
+      // 头端 dist（startTime）
+      const distHead = noteSpeed * t2s(n.startTime - nowTime);
+      // 尾端 dist（endTime）
+      const distTail = noteSpeed * t2s(n.endTime - nowTime);
+      const pHead = notePos(g, railIndex, railCount, distHead);
+      const pTail = notePos(g, railIndex, railCount, distTail);
+
+      // 主体：用矩形表示，从 pTail 到 pHead
+      // 中心点取中点，长边沿判定线法向
+      const cx = (pHead.x + pTail.x) / 2;
+      const cy = (pHead.y + pTail.y) / 2;
+      const length = Math.hypot(pHead.x - pTail.x, pHead.y - pTail.y);
+
+      n.el.setAttribute('x', cx - rectW/2);
+      n.el.setAttribute('y', cy - length/2);
+      n.el.setAttribute('width', rectW);
+      n.el.setAttribute('height', length);
+      const rectAng = Math.atan2(g.vy, g.vx) * 180/Math.PI;
+      n.el.setAttribute('transform', `rotate(${rectAng} ${cx} ${cy})`);
+
+      // 透明度：failed 时 30%
+      n.el.setAttribute('opacity', n.failed ? '0.3' : '1');
+
+      // 尾端 stroke 颜色
+      let tailColor = '#fff';
+      if(n.endType === 'free') tailColor = '#f00';
+      else if(n.endType === 'none') tailColor = '#00e';
+      n.tailEl.setAttribute('stroke', tailColor);
+      // 尾端线段：垂直于法向（沿判定线方向），位于 pTail
+      n.tailEl.setAttribute('x1', pTail.x - g.ux * rectW/2);
+      n.tailEl.setAttribute('y1', pTail.y - g.uy * rectW/2);
+      n.tailEl.setAttribute('x2', pTail.x + g.ux * rectW/2);
+      n.tailEl.setAttribute('y2', pTail.y + g.uy * rectW/2);
+      n.tailEl.setAttribute('opacity', n.failed ? '0.3' : '1');
+
+    } else {
+      if(n.hit || n.missed){ n.el.setAttribute('opacity','0'); return; }
+      const rectH = n.type === 'drag' ? rectW / 15 : rectW / 6;
+      const dist = noteSpeed * t2s(n.time - nowTime);
+      const p = notePos(g, railIndex, railCount, dist);
+      n.el.setAttribute('x', p.x - rectW/2);
+      n.el.setAttribute('y', p.y - rectH/2);
+      n.el.setAttribute('width', rectW);
+      n.el.setAttribute('height', rectH);
+      n.el.setAttribute('opacity','1');
+      n.el.setAttribute('transform', `rotate(${ang} ${p.x} ${p.y})`);
+    }
   });
 }
 
@@ -468,55 +570,187 @@ function updateCombo(){
 }
 
 /* ================= 判定 ================= */
-/* grade: 'perfect' | 'good' */
-function hitTap(tap, grade){
-  tap.hit = true;
-  combo++;
-  if(combo>maxCombo) maxCombo = combo;
-  if(grade === 'perfect'){
-    score += SCORE_PERFECT;
-    perfectCount++;
-  } else {
-    score += SCORE_GOOD;
-    goodCount++;
+function gradeFromDiff(diffSec, isDrag){
+  if(isDrag){
+    // drag 的 Good 合并进 Perfect
+    if(diffSec <= goodWindow) return 'perfect';
+    return null;
   }
-  updateCombo();
-  updateHud();
-}
-
-/* 根据误差（秒）返回 grade 或 null */
-function gradeFromDiff(diffSec){
   if(diffSec <= perfectWindow) return 'perfect';
   if(diffSec <= goodWindow) return 'good';
   return null;
 }
 
+function addHit(grade){
+  combo++;
+  if(combo>maxCombo) maxCombo = combo;
+  if(grade === 'perfect'){ score += SCORE_PERFECT; perfectCount++; }
+  else { score += SCORE_GOOD; goodCount++; }
+  updateCombo();
+  updateHud();
+}
+
+function addMiss(){
+  combo = 0;
+  missCount++;
+  updateCombo();
+  loseHp(HP_MISS);
+}
+
+/* rail 当前是否按住（键盘或触屏） */
+function railHeld(rail){
+  return heldKeys.has(rail) || heldRails.has(rail);
+}
+
+/* 判定：按下（t 判定 + hold 头判） */
 function judgeKeyDown(letter){
   if(!chart || !running) return;
   const nowTime = currentTime;
-  let best = null, bestDiff = Infinity;
-  for(const tap of taps){
-    if(tap.hit || tap.missed) continue;
-    if(tap.type !== 'tap') continue;
-    if(tap.rail !== letter) continue;
-    const diff = Math.abs(t2s(tap.time - nowTime));
-    if(diff < bestDiff){ bestDiff = diff; best = tap; }
+
+  // t
+  let bestT = null, bestTDiff = Infinity;
+  for(const n of notes){
+    if(n.type !== 'tap') continue;
+    if(n.hit || n.missed) continue;
+    if(n.rail !== letter) continue;
+    const diff = Math.abs(t2s(n.time - nowTime));
+    if(diff < bestTDiff){ bestTDiff = diff; bestT = n; }
   }
-  if(!best) return;
-  const grade = gradeFromDiff(bestDiff);
-  if(grade) hitTap(best, grade);
+  if(bestT){
+    const g = gradeFromDiff(bestTDiff, false);
+    if(g){ bestT.hit = true; addHit(g); }
+  }
+
+  // hold 头判
+  for(const n of notes){
+    if(n.type !== 'hold') continue;
+    if(n.headHit || n.failed) continue;
+    if(n.rail !== letter) continue;
+    const diff = Math.abs(t2s(n.startTime - nowTime));
+    if(diff <= goodWindow){
+      const g = gradeFromDiff(diff, false);
+      if(g){
+        n.headHit = true;
+        n.active = true;
+        addHit(g);
+      }
+      break;
+    }
+  }
 }
 
-function checkDrags(){
+/* 判定：每帧检查 drag + hold 中间/尾判 */
+function checkContinuous(){
   const nowTime = currentTime;
-  for(const tap of taps){
-    if(tap.hit || tap.missed) continue;
-    if(tap.type !== 'drag') continue;
-    const diff = Math.abs(t2s(tap.time - nowTime));
+
+  // drag
+  for(const n of notes){
+    if(n.type !== 'drag') continue;
+    if(n.hit || n.missed) continue;
+    const diff = Math.abs(t2s(n.time - nowTime));
     if(diff > goodWindow) continue;
-    if(heldKeys.has(tap.rail) || heldRails.has(tap.rail)){
-      const grade = gradeFromDiff(diff);
-      if(grade) hitTap(tap, grade);
+    if(railHeld(n.rail)){
+      n.hit = true;
+      addHit('perfect');   // drag Good 合并进 Perfect
+    }
+  }
+
+  // hold
+  for(const n of notes){
+    if(n.type !== 'hold') continue;
+    if(n.done) continue;
+
+    const t = n.duration;
+    const effEnd = n.effEnd;
+
+    // 中途：如果 active 且松开 → fail
+    if(n.active && n.headHit && !n.failed){
+      if(!railHeld(n.rail)){
+        // 中途松手
+        n.failed = true;
+        n.done = true;
+        n.active = false;
+        addMiss();
+        continue;
+      }
+
+      // 中间 combo 累加：从 startTime + 0.25 开始，每 0.25 一拍 +1，到 effEnd 为止
+      // 计算已经过了多少个 0.25 拍
+      const passed = Math.floor((nowTime - n.startTime) / 0.25);
+      const target = Math.max(0, passed);
+      // none 到 effEnd 截止
+      let maxComboCount;
+      if(n.endType === 'none'){
+        maxComboCount = Math.floor((effEnd - n.startTime) / 0.25);
+      } else {
+        maxComboCount = Math.floor((n.endTime - n.startTime) / 0.25);
+      }
+      const capped = Math.min(target, maxComboCount);
+      while(n.comboAcc < capped){
+        n.comboAcc++;
+        combo++;
+        if(combo>maxCombo) maxCombo = combo;
+        updateCombo();
+      }
+
+      // 尾判
+      // 处理尾判窗口内“计数变化”
+      const endCheck = (n.endType === 'none') ? effEnd : n.endTime;
+      const tailDiff = t2s(nowTime - endCheck);   // 已过去的时间（正=已过）
+      // 窗口：在 endCheck ± goodWindow 内
+      if(nowTime >= endCheck - goodWindow && nowTime <= endCheck + goodWindow){
+        // 记录窗口开始时计数
+        if(n.tailCountAt === null){
+          n.tailCountAt = holdCount.get(n.rail) || 0;
+        }
+        const cur = holdCount.get(n.rail) || 0;
+        if(n.endType === 'out'){
+          // 必须发生计数变化
+          if(cur !== n.tailCountAt){
+            // 变化发生：命中，按 tap 三档
+            const diff = Math.abs(t2s(nowTime - endCheck));
+            const g = gradeFromDiff(diff, false);
+            if(g){ addHit(g); }
+            n.done = true;
+            n.active = false;
+          }
+        } else if(n.endType === 'free'){
+          // free：不必须松手，窗口内直接算成功（用 drag 那套全 Perfect）
+          if(nowTime >= endCheck){
+            n.done = true;
+            n.active = false;
+            // 尾判命中 +1 combo
+            combo++;
+            if(combo>maxCombo) maxCombo = combo;
+            updateCombo();
+          }
+        }
+      }
+
+      // 超过窗口还没触发 → miss
+      if(!n.done && nowTime > endCheck + goodWindow){
+        n.failed = true;
+        n.done = true;
+        n.active = false;
+        addMiss();
+      }
+    }
+
+    // 头判窗口已过还没按 → miss
+    if(!n.headHit && !n.failed && !n.done){
+      if(t2s(nowTime - n.startTime) > goodWindow){
+        n.failed = true;
+        n.done = true;
+        addMiss();
+      }
+    }
+
+    // none：到 effEnd 就算成功（如果头判命中且没松手）
+    if(n.endType === 'none' && n.headHit && n.active && !n.failed && !n.done){
+      if(nowTime >= effEnd){
+        n.done = true;
+        n.active = false;
+      }
     }
   }
 }
@@ -527,16 +761,16 @@ function loseHp(amount){
   else updateHud();
 }
 
+/* 超时 Miss：只针对 t / drag */
 function autoMiss(){
   const nowTime = currentTime;
-  for(const tap of taps){
-    if(tap.hit || tap.missed) continue;
-    if(t2s(nowTime - tap.time) > goodWindow){
-      tap.missed = true;
-      combo = 0;
-      missCount++;
-      updateCombo();
-      loseHp(HP_MISS);
+  for(const n of notes){
+    if(n.type === 'hold') continue;
+    if(n.hit || n.missed) continue;
+    const th = (n.type === 'drag') ? goodWindow : goodWindow;
+    if(t2s(nowTime - n.time) > th){
+      n.missed = true;
+      addMiss();
       if(!running) return;
     }
   }
@@ -544,8 +778,12 @@ function autoMiss(){
 
 /* ================= 结束与结算 ================= */
 function allNotesDone(){
-  for(const tap of taps){
-    if(!tap.hit && !tap.missed) return false;
+  for(const n of notes){
+    if(n.type === 'hold'){
+      if(!n.done) return false;
+    } else {
+      if(!n.hit && !n.missed) return false;
+    }
   }
   return true;
 }
@@ -553,7 +791,10 @@ function allNotesDone(){
 let lastNoteTime = -Infinity;
 function computeLastNoteTime(){
   let m = -Infinity;
-  for(const tap of taps) if(tap.time > m) m = tap.time;
+  for(const n of notes){
+    const end = (n.type === 'hold') ? n.endTime : n.time;
+    if(end > m) m = end;
+  }
   lastNoteTime = m;
 }
 
@@ -579,17 +820,31 @@ function showResult(){
 }
 
 /* ================= 键盘 ================= */
+function keyAdd(k){
+  if(!heldKeys.has(k)){
+    heldKeys.add(k);
+    holdCount.set(k, (holdCount.get(k) || 0) + 1);
+  }
+}
+function keyRemove(k){
+  if(heldKeys.has(k)){
+    heldKeys.delete(k);
+    const n = (holdCount.get(k) || 0) - 1;
+    if(n <= 0) holdCount.delete(k); else holdCount.set(k, n);
+  }
+}
+
 document.addEventListener('keydown', e=>{
   const k = e.key.toUpperCase();
   if(k.length!==1 || k<'A' || k>'Z') return;
   if(!e.repeat){
-    heldKeys.add(k);
+    keyAdd(k);
     judgeKeyDown(k);
   }
 });
 document.addEventListener('keyup', e=>{
   const k = e.key.toUpperCase();
-  if(k.length===1 && k>='A' && k<='Z') heldKeys.delete(k);
+  if(k.length===1 && k>='A' && k<='Z') keyRemove(k);
 });
 
 /* ================= 触屏/鼠标 ================= */
@@ -630,15 +885,14 @@ function addRailHold(rail){
   const n = (railHoldCount.get(rail) || 0) + 1;
   railHoldCount.set(rail, n);
   heldRails.add(rail);
+  holdCount.set(rail, (holdCount.get(rail) || 0) + 1);
 }
 function removeRailHold(rail){
   const n = (railHoldCount.get(rail) || 0) - 1;
-  if(n <= 0){
-    railHoldCount.delete(rail);
-    heldRails.delete(rail);
-  } else {
-    railHoldCount.set(rail, n);
-  }
+  if(n <= 0){ railHoldCount.delete(rail); heldRails.delete(rail); }
+  else railHoldCount.set(rail, n);
+  const h = (holdCount.get(rail) || 0) - 1;
+  if(h <= 0) holdCount.delete(rail); else holdCount.set(rail, h);
 }
 
 svg.addEventListener('touchstart', e=>{
@@ -701,7 +955,7 @@ function loop(ts){
 
   if(running){
     currentTime += s2t(dtSec);
-    checkDrags();
+    checkContinuous();
     autoMiss();
 
     if(allNotesDone() && t2s(currentTime - lastNoteTime) >= END_DELAY){
@@ -748,6 +1002,7 @@ fileInput.onchange = (e)=>{
       heldRails.clear();
       touchMap.clear();
       railHoldCount.clear();
+      holdCount.clear();
       updateCombo();
       updateHud();
 
@@ -772,7 +1027,7 @@ document.getElementById('backBtn').onclick = ()=>{
 
   svg.innerHTML = '';
   chart = null;
-  taps = [];
+  notes = [];
   lines = [];
   points = {};
   svgLines = {};
