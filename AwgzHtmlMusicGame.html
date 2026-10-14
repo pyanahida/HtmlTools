@@ -45,10 +45,10 @@ window.onerror = function(m, src, line, col){
 };
 
 /* ================= 基础参数 ================= */
-const NOTE_SPEED = 200;          // px/s 固定流速
-const HIT_WINDOW = 0.060;        // 秒，±60ms
-const START_TIME = -8;           // 全局时间轴起点（四分音符单位）
-const TOUCH_RADIUS = 100;        // 手机点击判定半径（SVG 单位）
+const NOTE_SPEED = 200;
+const HIT_WINDOW = 0.060;
+const START_TIME = -8;
+const TOUCH_RADIUS = 100;
 
 const svg = document.getElementById('stage');
 const comboEl = document.getElementById('combo');
@@ -59,9 +59,7 @@ let points = {};
 let lines  = [];
 let taps   = [];
 
-/* time(四分音符单位) -> 秒 */
 function t2s(t){ return t * 60 / chart.bpm; }
-/* 秒 -> time */
 function s2t(s){ return s * chart.bpm / 60; }
 
 /* ================= 解析 XML ================= */
@@ -89,7 +87,7 @@ function parseChart(xmlDoc){
       id: l.getAttribute('id'),
       start: l.getAttribute('start'),
       end: l.getAttribute('end'),
-      rails: (l.getAttribute('rails')||'').trim().split(/\s+/)
+      rails: (l.getAttribute('rails')||'').trim().split(/\s+/).filter(Boolean)
     });
   });
 
@@ -145,7 +143,7 @@ function buildRuntime(c){
   songNameEl.textContent = ' ' + c.name + '  BPM:' + c.bpm;
 }
 
-/* ================= 点位置（含 pointmove 插值） ================= */
+/* ================= 点位置 ================= */
 function pointPos(p, nowTime){
   let x = p.baseX, y = p.baseY;
   for(const m of p.moves){
@@ -167,12 +165,11 @@ function lineGeom(line, nowTime){
   let dx = p1.x - p0.x, dy = p1.y - p0.y;
   let len = Math.hypot(dx,dy);
   if(len < 1e-6){ dx=1; dy=0; len=1; }
-  const ux = dx/len, uy = dy/len;     // 方向：start -> end
-  const vx = -uy, vy = ux;            // 法向
+  const ux = dx/len, uy = dy/len;
+  const vx = -uy, vy = ux;
   return {p0,p1,ux,uy,vx,vy,len};
 }
 
-/* 某条轨的中心点（沿判定线等分） */
 function railCenter(g, railIndex, railCount){
   const seg = g.len / railCount;
   const d = seg * (railIndex + 0.5);
@@ -188,13 +185,11 @@ function buildSvgForLines(){
   lines.forEach(l=>{
     const railCount = l.rails.length;
 
-    // 判定线
     const lineEl = document.createElementNS('http://www.w3.org/2000/svg','line');
     lineEl.setAttribute('stroke','#fff');
     lineEl.setAttribute('stroke-width','2');
     svg.appendChild(lineEl);
 
-    // 边界线
     const borders = [];
     for(let i=0;i<=railCount;i++){
       const el = document.createElementNS('http://www.w3.org/2000/svg','line');
@@ -204,9 +199,10 @@ function buildSvgForLines(){
       borders.push(el);
     }
 
-    // 轨道字母
+    // 轨道字母：建时即设初始坐标
     const railLabels = [];
-    l.rails.forEach(letter=>{
+    const g0 = lineGeom(l, START_TIME);
+    l.rails.forEach((letter, i)=>{
       const el = document.createElementNS('http://www.w3.org/2000/svg','text');
       el.textContent = letter;
       el.setAttribute('fill','#fff');
@@ -214,11 +210,14 @@ function buildSvgForLines(){
       el.setAttribute('font-family','monospace');
       el.setAttribute('text-anchor','middle');
       el.setAttribute('dominant-baseline','middle');
+      const c0 = railCenter(g0, i, railCount);
+      el.setAttribute('x', c0.x);
+      el.setAttribute('y', c0.y);
       svg.appendChild(el);
       railLabels.push(el);
     });
 
-    // 音符元素：直接绑定到 tap 对象
+    // 音符元素
     taps.forEach(tap=>{
       if(tap.lineId !== l.id) return;
       const el = document.createElementNS('http://www.w3.org/2000/svg','rect');
@@ -247,10 +246,8 @@ function render(nowTime){
     if(!store) continue;
     const railCount = store.railCount;
 
-    // 判定线
     setInfiniteLine(store.lineEl, g.p0.x, g.p0.y, g.ux, g.uy);
 
-    // 边界线
     const seg = g.len / railCount;
     for(let i=0;i<=railCount;i++){
       const d = seg * i;
@@ -263,7 +260,6 @@ function render(nowTime){
       el.setAttribute('y2', by + g.vy*FAR);
     }
 
-    // 轨道字母
     for(let i=0;i<railCount;i++){
       const c = railCenter(g, i, railCount);
       const el = store.railLabels[i];
@@ -272,7 +268,6 @@ function render(nowTime){
     }
   }
 
-  // 音符
   taps.forEach(tap=>{
     const el = tap.el;
     if(!el) return;
@@ -310,7 +305,6 @@ function render(nowTime){
 function judgeKey(letter){
   if(!chart) return;
   const nowTime = currentTime;
-
   let best = null, bestDiff = Infinity;
   for(const tap of taps){
     if(tap.hit || tap.missed) continue;
@@ -344,14 +338,13 @@ function updateCombo(){
   comboEl.textContent = combo > 0 ? combo : '';
 }
 
-/* ================= 键盘 ================= */
 document.addEventListener('keydown', e=>{
   if(e.repeat) return;
   const k = e.key.toUpperCase();
   if(k.length===1 && k>='A' && k<='Z') judgeKey(k);
 });
 
-/* ================= 触屏/鼠标点击判定（手机支持） ================= */
+/* ================= 触屏/鼠标点击判定 ================= */
 function screenToSvg(clientX, clientY){
   const rect = svg.getBoundingClientRect();
   const vbW = 800, vbH = 600;
