@@ -87,8 +87,10 @@ let hp = MAX_HP;
 let combo = 0, maxCombo = 0;
 
 /* 输入状态 */
-const heldKeys = new Set();     // 按住的字母键
-const heldRails = new Set();    // 手机端按住的轨
+const heldKeys = new Set();       // 按住的字母键
+const heldRails = new Set();      // 当前被按住的轨
+const touchMap = new Map();       // touch identifier -> rail
+const railHoldCount = new Map();  // rail -> 按住触点数
 
 function t2s(t){ return t * 60 / chart.bpm; }
 function s2t(s){ return s * chart.bpm / 60; }
@@ -121,13 +123,10 @@ function parseChart(xmlDoc){
       end: l.getAttribute('end'),
       rails: (l.getAttribute('rails')||'').trim().split(/\s+/).filter(Boolean),
       alpha: l.hasAttribute('alpha') ? parseFloat(l.getAttribute('alpha')) : 1,
-      railBorderAlpha: l.hasAttribute('railBorderAlpha') ? parseFloat(l.getAttribute('railBorderAlpha')) : 0.5,
-      alphaEvents: [],
-      railBorderAlphaEvents: []
+      railBorderAlpha: l.hasAttribute('railBorderAlpha') ? parseFloat(l.getAttribute('railBorderAlpha')) : 0.5
     });
   });
 
-  // t 和 d
   root.querySelectorAll('taps > t, taps > d').forEach(el=>{
     const isDrag = el.tagName.toLowerCase() === 'd';
     c.taps.push({
@@ -138,7 +137,6 @@ function parseChart(xmlDoc){
     });
   });
 
-  // events
   root.querySelectorAll('events > pointmove').forEach(m=>{
     c.events.push({
       kind: 'pointmove',
@@ -200,9 +198,7 @@ function buildRuntime(c){
       alpha: l.alpha,
       railBorderAlpha: l.railBorderAlpha,
       alphaEvents,
-      railBorderAlphaEvents: rbEvents,
-      alphaEventsDone: false,
-      rbEventsDone: false
+      railBorderAlphaEvents: rbEvents
     };
   });
 
@@ -234,7 +230,6 @@ function pointPos(p, nowTime){
   return {x,y};
 }
 
-/* 透明度事件：从当前值线性到 endAlpha */
 function applyAlphaEvents(base, events, nowTime){
   let val = base;
   for(const e of events){
@@ -334,7 +329,6 @@ function render(nowTime){
     if(!store) continue;
     const railCount = store.railCount;
 
-    // 透明度
     l.alpha = applyAlphaEvents(l.baseAlpha, l.alphaEvents, nowTime);
     l.railBorderAlpha = applyAlphaEvents(l.baseRailBorderAlpha, l.railBorderAlphaEvents, nowTime);
 
@@ -419,7 +413,6 @@ function hitTap(tap){
   updateHud();
 }
 
-// t：按下瞬间判定
 function judgeKeyDown(letter){
   if(!chart || !running) return;
   const nowTime = currentTime;
@@ -434,7 +427,6 @@ function judgeKeyDown(letter){
   if(best && bestDiff <= HIT_WINDOW) hitTap(best);
 }
 
-// d：按住/划过判定（每帧检查）
 function checkDrags(){
   const nowTime = currentTime;
   for(const tap of taps){
@@ -481,16 +473,15 @@ document.addEventListener('keydown', e=>{
   if(k.length!==1 || k<'A' || k>'Z') return;
   if(!e.repeat){
     heldKeys.add(k);
-    judgeKeyDown(k);   // t 判定
+    judgeKeyDown(k);
   }
-  // d 的判定放到每帧 checkDrags
 });
 document.addEventListener('keyup', e=>{
   const k = e.key.toUpperCase();
   if(k.length===1 && k>='A' && k<='Z') heldKeys.delete(k);
 });
 
-/* ================= 触屏/鼠标 ================= */
+/* ================= 触屏/鼠标（多指） ================= */
 function screenToSvg(clientX, clientY){
   const rect = svg.getBoundingClientRect();
   const vbW = 800, vbH = 600;
@@ -524,41 +515,57 @@ function railAtPoint(clientX, clientY){
   return bestRail;
 }
 
+function addRailHold(rail){
+  const n = (railHoldCount.get(rail) || 0) + 1;
+  railHoldCount.set(rail, n);
+  heldRails.add(rail);
+}
+function removeRailHold(rail){
+  const n = (railHoldCount.get(rail) || 0) - 1;
+  if(n <= 0){
+    railHoldCount.delete(rail);
+    heldRails.delete(rail);
+  } else {
+    railHoldCount.set(rail, n);
+  }
+}
+
 svg.addEventListener('touchstart', e=>{
   e.preventDefault();
   if(!chart || !running) return;
   for(const t of e.changedTouches){
     const rail = railAtPoint(t.clientX, t.clientY);
-    if(rail){
-      heldRails.add(rail);
-      judgeKeyDown(rail);   // t 判定（和键盘一致）
-    }
+    if(!rail) continue;
+    touchMap.set(t.identifier, rail);
+    addRailHold(rail);
+    judgeKeyDown(rail);
   }
 }, {passive:false});
 
+function endTouches(e){
+  for(const t of e.changedTouches){
+    const rail = touchMap.get(t.identifier);
+    if(rail === undefined) continue;
+    touchMap.delete(t.identifier);
+    removeRailHold(rail);
+  }
+}
 svg.addEventListener('touchend', e=>{
   e.preventDefault();
-  for(const t of e.changedTouches){
-    const rail = railAtPoint(t.clientX, t.clientY);
-    if(rail) heldRails.delete(rail);
-  }
+  endTouches(e);
 }, {passive:false});
-
 svg.addEventListener('touchcancel', e=>{
-  for(const t of e.changedTouches){
-    const rail = railAtPoint(t.clientX, t.clientY);
-    if(rail) heldRails.delete(rail);
-  }
+  endTouches(e);
 }, {passive:false});
 
 svg.addEventListener('mousedown', e=>{
   if(!chart || !running) return;
   const rail = railAtPoint(e.clientX, e.clientY);
-  if(rail){ heldRails.add(rail); judgeKeyDown(rail); }
+  if(rail){ addRailHold(rail); judgeKeyDown(rail); }
 });
 svg.addEventListener('mouseup', e=>{
   const rail = railAtPoint(e.clientX, e.clientY);
-  if(rail) heldRails.delete(rail);
+  if(rail) removeRailHold(rail);
 });
 
 /* ================= 主循环 ================= */
@@ -598,6 +605,8 @@ document.getElementById('fileInput').onchange = (e)=>{
       combo = 0; maxCombo = 0;
       heldKeys.clear();
       heldRails.clear();
+      touchMap.clear();
+      railHoldCount.clear();
       updateCombo();
       updateHud();
       gameoverEl.style.display = 'none';
