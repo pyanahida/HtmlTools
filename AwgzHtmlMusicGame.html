@@ -19,6 +19,14 @@
     touch-action:none;-webkit-user-select:none;user-select:none;}
   #combo{position:absolute;top:16px;left:0;width:100%;text-align:center;
     font-size:28px;color:#fff;pointer-events:none;text-shadow:0 0 6px #fff8;}
+  #hud{position:absolute;left:12px;bottom:12px;pointer-events:none;
+    font-size:16px;line-height:1.5;color:#fff;text-shadow:0 0 6px #000;}
+  #hud .hpbar{width:120px;height:10px;border:1px solid #666;margin-top:2px;}
+  #hud .hpfill{height:100%;background:#fff;width:100%;}
+  #gameover{position:absolute;inset:0;display:none;align-items:center;
+    justify-content:center;flex-direction:column;color:#fff;font-size:28px;
+    background:rgba(0,0,0,0.7);pointer-events:none;}
+  #gameover small{font-size:16px;margin-top:8px;}
 </style>
 </head>
 <body>
@@ -31,6 +39,12 @@
 <div id="wrap">
   <svg id="stage" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid meet"></svg>
   <div id="combo"></div>
+  <div id="hud">
+    <div>SCORE <span id="score">0</span></div>
+    <div>HP <span id="hp">80</span></div>
+    <div class="hpbar"><div class="hpfill" id="hpfill"></div></div>
+  </div>
+  <div id="gameover">GAME OVER<small id="finalScore"></small></div>
 </div>
 
 <script>
@@ -50,14 +64,28 @@ const HIT_WINDOW = 0.060;
 const START_TIME = -8;
 const TOUCH_RADIUS = 100;
 
+const MAX_HP = 80;
+const SCORE_PERFECT = 5;
+const HP_MISS = -5;
+
 const svg = document.getElementById('stage');
 const comboEl = document.getElementById('combo');
 const songNameEl = document.getElementById('songName');
+const scoreEl = document.getElementById('score');
+const hpEl = document.getElementById('hp');
+const hpFillEl = document.getElementById('hpfill');
+const gameoverEl = document.getElementById('gameover');
+const finalScoreEl = document.getElementById('finalScore');
 
 let chart = null;
 let points = {};
 let lines  = [];
 let taps   = [];
+
+/* 游戏状态 */
+let score = 0;
+let hp = MAX_HP;
+let combo = 0, maxCombo = 0;
 
 function t2s(t){ return t * 60 / chart.bpm; }
 function s2t(s){ return s * chart.bpm / 60; }
@@ -199,7 +227,6 @@ function buildSvgForLines(){
       borders.push(el);
     }
 
-    // 轨道字母：建时即设初始坐标
     const railLabels = [];
     const g0 = lineGeom(l, START_TIME);
     l.rails.forEach((letter, i)=>{
@@ -217,7 +244,6 @@ function buildSvgForLines(){
       railLabels.push(el);
     });
 
-    // 音符元素
     taps.forEach(tap=>{
       if(tap.lineId !== l.id) return;
       const el = document.createElementNS('http://www.w3.org/2000/svg','rect');
@@ -301,10 +327,23 @@ function render(nowTime){
   });
 }
 
+/* ================= HUD ================= */
+function updateHud(){
+  scoreEl.textContent = score;
+  hpEl.textContent = hp;
+  const pct = Math.max(0, Math.min(1, hp / MAX_HP)) * 100;
+  hpFillEl.style.width = pct + '%';
+}
+
+function updateCombo(){
+  comboEl.textContent = combo > 0 ? combo : '';
+}
+
 /* ================= 判定 ================= */
 function judgeKey(letter){
-  if(!chart) return;
+  if(!chart || !running) return;
   const nowTime = currentTime;
+
   let best = null, bestDiff = Infinity;
   for(const tap of taps){
     if(tap.hit || tap.missed) continue;
@@ -317,8 +356,21 @@ function judgeKey(letter){
     best.hit = true;
     combo++;
     if(combo>maxCombo) maxCombo = combo;
+    score += SCORE_PERFECT;
+    updateCombo();
+    updateHud();
   }
-  updateCombo();
+}
+
+function loseHp(amount){
+  hp += amount;
+  if(hp <= 0){
+    hp = 0;
+    updateHud();
+    endGame();
+  } else {
+    updateHud();
+  }
 }
 
 function autoMiss(){
@@ -329,15 +381,20 @@ function autoMiss(){
       tap.missed = true;
       combo = 0;
       updateCombo();
+      loseHp(HP_MISS);
+      if(!running) return;
     }
   }
 }
 
-let combo = 0, maxCombo = 0;
-function updateCombo(){
-  comboEl.textContent = combo > 0 ? combo : '';
+/* ================= 游戏结束 ================= */
+function endGame(){
+  running = false;
+  gameoverEl.style.display = 'flex';
+  finalScoreEl.textContent = 'SCORE ' + score;
 }
 
+/* ================= 键盘 ================= */
 document.addEventListener('keydown', e=>{
   if(e.repeat) return;
   const k = e.key.toUpperCase();
@@ -359,7 +416,7 @@ function screenToSvg(clientX, clientY){
 }
 
 function handlePointer(clientX, clientY){
-  if(!chart) return;
+  if(!chart || !running) return;
   const p = screenToSvg(clientX, clientY);
   const nowTime = currentTime;
 
@@ -400,7 +457,7 @@ function loop(ts){
   lastTs = ts;
   currentTime += s2t(dtSec);
   autoMiss();
-  render(currentTime);
+  if(running) render(currentTime);
   requestAnimationFrame(loop);
 }
 
@@ -418,7 +475,15 @@ document.getElementById('fileInput').onchange = (e)=>{
       const c = parseChart(doc);
       buildRuntime(c);
       buildSvgForLines();
-      combo = 0; maxCombo = 0; updateCombo();
+
+      // 重置状态
+      score = 0;
+      hp = MAX_HP;
+      combo = 0; maxCombo = 0;
+      updateCombo();
+      updateHud();
+      gameoverEl.style.display = 'none';
+
       currentTime = START_TIME;
       lastTs = 0;
       running = true;
