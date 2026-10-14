@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>AWGZ</title>
 <style>
   html,body{margin:0;height:100%;background:#000;overflow:hidden;
@@ -13,9 +14,10 @@
   button:hover{background:#333;}
   #err{position:fixed;top:0;left:0;right:0;background:#a00;color:#fff;
     font-size:12px;padding:4px 8px;display:none;z-index:99;white-space:pre-wrap;}
-  #wrap{position:relative;width:800px;height:600px;background:#000;}
-  svg{display:block;width:800px;height:600px;background:#000;}
-  #combo{position:absolute;top:16px;left:0;width:800px;text-align:center;
+  #wrap{position:relative;width:800px;height:600px;background:#000;max-width:100vw;}
+  svg{display:block;width:800px;height:600px;background:#000;max-width:100vw;
+    touch-action:none;-webkit-user-select:none;user-select:none;}
+  #combo{position:absolute;top:16px;left:0;width:100%;text-align:center;
     font-size:28px;color:#fff;pointer-events:none;text-shadow:0 0 6px #fff8;}
 </style>
 </head>
@@ -43,9 +45,10 @@ window.onerror = function(m, src, line, col){
 };
 
 /* ================= 基础参数 ================= */
-const NOTE_SPEED = 200;
-const HIT_WINDOW = 0.060;
-const START_TIME = -8;
+const NOTE_SPEED = 200;          // px/s 固定流速
+const HIT_WINDOW = 0.060;        // 秒，±60ms
+const START_TIME = -8;           // 全局时间轴起点（四分音符单位）
+const TOUCH_RADIUS = 100;        // 手机点击判定半径（SVG 单位）
 
 const svg = document.getElementById('stage');
 const comboEl = document.getElementById('combo');
@@ -56,7 +59,9 @@ let points = {};
 let lines  = [];
 let taps   = [];
 
+/* time(四分音符单位) -> 秒 */
 function t2s(t){ return t * 60 / chart.bpm; }
+/* 秒 -> time */
 function s2t(s){ return s * chart.bpm / 60; }
 
 /* ================= 解析 XML ================= */
@@ -109,12 +114,13 @@ function parseChart(xmlDoc){
   return c;
 }
 
-/* ================= 初始化 ================= */
+/* ================= 初始化运行时 ================= */
 function buildRuntime(c){
   chart = c;
   points = {};
   for(const id in c.points){
-    points[id] = { x:c.points[id].x, y:c.points[id].y, baseX:c.points[id].x, baseY:c.points[id].y, moves:[] };
+    points[id] = { x:c.points[id].x, y:c.points[id].y,
+                   baseX:c.points[id].x, baseY:c.points[id].y, moves:[] };
   }
   c.events.forEach(e=>{
     if(points[e.obj]) points[e.obj].moves.push(e);
@@ -139,7 +145,7 @@ function buildRuntime(c){
   songNameEl.textContent = ' ' + c.name + '  BPM:' + c.bpm;
 }
 
-/* ================= 点位置 ================= */
+/* ================= 点位置（含 pointmove 插值） ================= */
 function pointPos(p, nowTime){
   let x = p.baseX, y = p.baseY;
   for(const m of p.moves){
@@ -154,18 +160,19 @@ function pointPos(p, nowTime){
   return {x,y};
 }
 
-/* ================= 几何 ================= */
+/* ================= 判定线几何 ================= */
 function lineGeom(line, nowTime){
   const p0 = pointPos(points[line.startId], nowTime);
   const p1 = pointPos(points[line.endId], nowTime);
   let dx = p1.x - p0.x, dy = p1.y - p0.y;
   let len = Math.hypot(dx,dy);
   if(len < 1e-6){ dx=1; dy=0; len=1; }
-  const ux = dx/len, uy = dy/len;
-  const vx = -uy, vy = ux;
+  const ux = dx/len, uy = dy/len;     // 方向：start -> end
+  const vx = -uy, vy = ux;            // 法向
   return {p0,p1,ux,uy,vx,vy,len};
 }
 
+/* 某条轨的中心点（沿判定线等分） */
 function railCenter(g, railIndex, railCount){
   const seg = g.len / railCount;
   const d = seg * (railIndex + 0.5);
@@ -181,11 +188,13 @@ function buildSvgForLines(){
   lines.forEach(l=>{
     const railCount = l.rails.length;
 
+    // 判定线
     const lineEl = document.createElementNS('http://www.w3.org/2000/svg','line');
     lineEl.setAttribute('stroke','#fff');
     lineEl.setAttribute('stroke-width','2');
     svg.appendChild(lineEl);
 
+    // 边界线
     const borders = [];
     for(let i=0;i<=railCount;i++){
       const el = document.createElementNS('http://www.w3.org/2000/svg','line');
@@ -195,6 +204,7 @@ function buildSvgForLines(){
       borders.push(el);
     }
 
+    // 轨道字母
     const railLabels = [];
     l.rails.forEach(letter=>{
       const el = document.createElementNS('http://www.w3.org/2000/svg','text');
@@ -208,8 +218,7 @@ function buildSvgForLines(){
       railLabels.push(el);
     });
 
-    // 音符元素：直接建，绑到 tap
-    let noteCount = 0;
+    // 音符元素：直接绑定到 tap 对象
     taps.forEach(tap=>{
       if(tap.lineId !== l.id) return;
       const el = document.createElementNS('http://www.w3.org/2000/svg','rect');
@@ -217,10 +226,9 @@ function buildSvgForLines(){
       el.setAttribute('opacity','0');
       svg.appendChild(el);
       tap.el = el;
-      noteCount++;
     });
 
-    svgLines[l.id] = { lineEl, borders, railLabels, railCount, noteCount };
+    svgLines[l.id] = { lineEl, borders, railLabels, railCount };
   });
 }
 
@@ -239,8 +247,10 @@ function render(nowTime){
     if(!store) continue;
     const railCount = store.railCount;
 
+    // 判定线
     setInfiniteLine(store.lineEl, g.p0.x, g.p0.y, g.ux, g.uy);
 
+    // 边界线
     const seg = g.len / railCount;
     for(let i=0;i<=railCount;i++){
       const d = seg * i;
@@ -253,6 +263,7 @@ function render(nowTime){
       el.setAttribute('y2', by + g.vy*FAR);
     }
 
+    // 轨道字母
     for(let i=0;i<railCount;i++){
       const c = railCenter(g, i, railCount);
       const el = store.railLabels[i];
@@ -261,6 +272,7 @@ function render(nowTime){
     }
   }
 
+  // 音符
   taps.forEach(tap=>{
     const el = tap.el;
     if(!el) return;
@@ -298,6 +310,7 @@ function render(nowTime){
 function judgeKey(letter){
   if(!chart) return;
   const nowTime = currentTime;
+
   let best = null, bestDiff = Infinity;
   for(const tap of taps){
     if(tap.hit || tap.missed) continue;
@@ -331,10 +344,55 @@ function updateCombo(){
   comboEl.textContent = combo > 0 ? combo : '';
 }
 
+/* ================= 键盘 ================= */
 document.addEventListener('keydown', e=>{
   if(e.repeat) return;
   const k = e.key.toUpperCase();
   if(k.length===1 && k>='A' && k<='Z') judgeKey(k);
+});
+
+/* ================= 触屏/鼠标点击判定（手机支持） ================= */
+function screenToSvg(clientX, clientY){
+  const rect = svg.getBoundingClientRect();
+  const vbW = 800, vbH = 600;
+  const scale = Math.min(rect.width / vbW, rect.height / vbH);
+  const drawW = vbW * scale, drawH = vbH * scale;
+  const offsetX = (rect.width - drawW) / 2;
+  const offsetY = (rect.height - drawH) / 2;
+  return {
+    x: (clientX - rect.left - offsetX) / scale,
+    y: (clientY - rect.top  - offsetY) / scale
+  };
+}
+
+function handlePointer(clientX, clientY){
+  if(!chart) return;
+  const p = screenToSvg(clientX, clientY);
+  const nowTime = currentTime;
+
+  let bestRail = null, bestDist = Infinity;
+  for(const l of lines){
+    const g = lineGeom(l, nowTime);
+    const railCount = l.rails.length;
+    for(let i=0;i<railCount;i++){
+      const c = railCenter(g, i, railCount);
+      const d = Math.hypot(p.x - c.x, p.y - c.y);
+      if(d <= TOUCH_RADIUS && d < bestDist){
+        bestDist = d;
+        bestRail = l.rails[i];
+      }
+    }
+  }
+  if(bestRail) judgeKey(bestRail);
+}
+
+svg.addEventListener('touchstart', e=>{
+  e.preventDefault();
+  for(const t of e.changedTouches) handlePointer(t.clientX, t.clientY);
+}, {passive:false});
+
+svg.addEventListener('mousedown', e=>{
+  handlePointer(e.clientX, e.clientY);
 });
 
 /* ================= 主循环 ================= */
@@ -353,7 +411,7 @@ function loop(ts){
   requestAnimationFrame(loop);
 }
 
-/* ================= 导入 ================= */
+/* ================= 文件导入 ================= */
 document.getElementById('loadBtn').onclick = ()=>{
   document.getElementById('fileInput').click();
 };
