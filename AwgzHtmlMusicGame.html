@@ -274,8 +274,8 @@ function render(nowTime, nowSec){
       // 音符中心：从 railCenter 沿 -v 方向（因为音符从“上方”U 落下）
       // 这里 U 定义为从判定线上方来：法向 v 指向上侧时，音符中心 = center + v*dist
       // 为保证从上方落下，取 v 作为“来向”
-      const ncx = center.x + g.vx * dist;
-      const ncy = center.y + g.vy * dist;
+      const ncx = center.x - g.vx * dist;
+      const ncy = center.y - g.vy * dist;
 
       el.setAttribute('x', ncx - rectW/2);
       el.setAttribute('y', ncy - rectH/2);
