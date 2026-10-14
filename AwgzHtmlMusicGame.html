@@ -301,7 +301,7 @@ function buildRuntime(c){
         done: false,         // 整体完成（成功或失败）
         comboAcc: 0,         // 已累加的中间 combo 数（按 0.25 拍）
         // 记录按住计数历史，用于 out 尾判
-        tailCountAt: null,   // 尾判窗口内的初始计数快照
+        tailLastCount: 1,    // 尾判窗口内上一帧的按住计数
         el: null, tailEl: null
       };
     } else {
@@ -503,46 +503,53 @@ function render(nowTime){
     const ang = Math.atan2(g.uy, g.ux) * 180/Math.PI;
 
     if(n.type === 'hold'){
-      if(n.done && !n.failed){
+      // 头端、尾端沿法向的位置（dist 为负表示已穿过判定线）
+      let distHead = noteSpeed * t2s(n.startTime - nowTime);
+      let distTail = noteSpeed * t2s(n.endTime - nowTime);
+    
+      // 隐藏穿过判定线的部分
+      if (distHead < 0) distHead = 0;
+      if (distTail < 0) {
+        // 尾端也过线了，整个长条已经走完
         n.el.setAttribute('opacity','0');
         if(n.tailEl) n.tailEl.setAttribute('opacity','0');
         return;
       }
-      // 头端 dist（startTime）
-      const distHead = noteSpeed * t2s(n.startTime - nowTime);
-      // 尾端 dist（endTime）
-      const distTail = noteSpeed * t2s(n.endTime - nowTime);
+    
       const pHead = notePos(g, railIndex, railCount, distHead);
       const pTail = notePos(g, railIndex, railCount, distTail);
-
-      // 主体：用矩形表示，从 pTail 到 pHead
-      // 中心点取中点，长边沿判定线法向
+    
+      // 长度 = 头尾实际距离（已经过截断）
+      const length = Math.hypot(pHead.x - pTail.x, pHead.y - pTail.y);
+      if (length <= 0) {
+        n.el.setAttribute('opacity','0');
+        if(n.tailEl) n.tailEl.setAttribute('opacity','0');
+        return;
+      }
+    
       const cx = (pHead.x + pTail.x) / 2;
       const cy = (pHead.y + pTail.y) / 2;
-      const length = Math.hypot(pHead.x - pTail.x, pHead.y - pTail.y);
-
-      n.el.setAttribute('x', cx - rectW/2);
-      n.el.setAttribute('y', cy - length/2);
-      n.el.setAttribute('width', rectW);
+      const rectW2 = rectW;
+    
+      n.el.setAttribute('x', -rectW2/2);
+      n.el.setAttribute('y', -length/2);
+      n.el.setAttribute('width', rectW2);
       n.el.setAttribute('height', length);
-      const rectAng = Math.atan2(g.vy, g.vx) * 180/Math.PI;
-      n.el.setAttribute('transform', `rotate(${rectAng} ${cx} ${cy})`);
-
-      // 透明度：failed 时 30%
+      const lineAng = Math.atan2(pHead.y - pTail.y, pHead.x - pTail.x) * 180/Math.PI;
+      n.el.setAttribute('transform', `translate(${cx} ${cy}) rotate(${lineAng + 90})`);
       n.el.setAttribute('opacity', n.failed ? '0.3' : '1');
-
-      // 尾端 stroke 颜色
+    
+      // 尾端标记（只有当尾端还没过线时才显示）
       let tailColor = '#fff';
       if(n.endType === 'free') tailColor = '#f00';
       else if(n.endType === 'none') tailColor = '#00e';
       n.tailEl.setAttribute('stroke', tailColor);
-      // 尾端线段：垂直于法向（沿判定线方向），位于 pTail
-      n.tailEl.setAttribute('x1', pTail.x - g.ux * rectW/2);
-      n.tailEl.setAttribute('y1', pTail.y - g.uy * rectW/2);
-      n.tailEl.setAttribute('x2', pTail.x + g.ux * rectW/2);
-      n.tailEl.setAttribute('y2', pTail.y + g.uy * rectW/2);
+      n.tailEl.setAttribute('stroke-width', Math.max(2, rectW2 * 0.15));
+      n.tailEl.setAttribute('x1', pTail.x - g.ux * rectW2/2);
+      n.tailEl.setAttribute('y1', pTail.y - g.uy * rectW2/2);
+      n.tailEl.setAttribute('x2', pTail.x + g.ux * rectW2/2);
+      n.tailEl.setAttribute('y2', pTail.y + g.uy * rectW2/2);
       n.tailEl.setAttribute('opacity', n.failed ? '0.3' : '1');
-
     } else {
       if(n.hit || n.missed){ n.el.setAttribute('opacity','0'); return; }
       const rectH = n.type === 'drag' ? rectW / 15 : rectW / 6;
@@ -581,13 +588,50 @@ function gradeFromDiff(diffSec, isDrag){
   return null;
 }
 
-function addHit(grade){
+function addHit(grade, rail){
   combo++;
   if(combo>maxCombo) maxCombo = combo;
-  if(grade === 'perfect'){ score += SCORE_PERFECT; perfectCount++; }
-  else { score += SCORE_GOOD; goodCount++; }
+  if(grade === 'perfect'){ score += SCORE_PERFECT; perfectCount++; spawnHitEffect(rail, 'perfect'); }
+  else { score += SCORE_GOOD; goodCount++; spawnHitEffect(rail, 'good'); }
   updateCombo();
   updateHud();
+}
+
+/* 打击提示特效 */
+let hitEffects = [];
+
+function spawnHitEffect(rail, type){
+  if(!chart) return;
+  const nowTime = currentTime;
+  for(const l of lines){
+    const railIndex = l.rails.indexOf(rail);
+    if(railIndex < 0) continue;
+    const g = lineGeom(l, nowTime);
+    const railCount = l.rails.length;
+    const c = railCenter(g, railIndex, railCount);
+
+    const size = 40 * Math.SQRT2;   // 边长 40√2
+    const el = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    el.setAttribute('width', size);
+    el.setAttribute('height', size);
+    el.setAttribute('x', -size/2);
+    el.setAttribute('y', -size/2);
+    el.setAttribute('fill', type === 'perfect' ? '#f00' : '#00f');
+    el.setAttribute('transform', `translate(${c.x} ${c.y}) rotate(45)`);
+    svg.appendChild(el);
+    hitEffects.push({ el, life: 0.15 });
+  }
+}
+
+function updateHitEffects(dtSec){
+  for(let i = hitEffects.length - 1; i >= 0; i--){
+    const e = hitEffects[i];
+    e.life -= dtSec;
+    if(e.life <= 0){
+      e.el.remove();
+      hitEffects.splice(i, 1);
+    }
+  }
 }
 
 function addMiss(){
@@ -618,7 +662,7 @@ function judgeKeyDown(letter){
   }
   if(bestT){
     const g = gradeFromDiff(bestTDiff, false);
-    if(g){ bestT.hit = true; addHit(g); }
+    if(g){ bestT.hit = true; addHit(g, bestT.rail); }
   }
 
   // hold 头判
@@ -632,7 +676,7 @@ function judgeKeyDown(letter){
       if(g){
         n.headHit = true;
         n.active = true;
-        addHit(g);
+        addHit(g, n.rail);
       }
       break;
     }
@@ -651,7 +695,7 @@ function checkContinuous(){
     if(diff > goodWindow) continue;
     if(railHeld(n.rail)){
       n.hit = true;
-      addHit('perfect');   // drag Good 合并进 Perfect
+      addHit('perfect', n.rail);   // drag Good 合并进 Perfect
     }
   }
 
@@ -665,8 +709,11 @@ function checkContinuous(){
 
     // 中途：如果 active 且松开 → fail
     if(n.active && n.headHit && !n.failed){
-      if(!railHeld(n.rail)){
-        // 中途松手
+      const endCheck0 = (n.endType === 'none') ? effEnd : n.endTime;
+      const inTailWindow = (nowTime >= endCheck0 - goodWindow);
+    
+      // 中途松手：只在还没进入尾判窗口时才判失败
+      if(!inTailWindow && !railHeld(n.rail)){
         n.failed = true;
         n.done = true;
         n.active = false;
@@ -698,33 +745,34 @@ function checkContinuous(){
       const endCheck = (n.endType === 'none') ? effEnd : n.endTime;
       const tailDiff = t2s(nowTime - endCheck);   // 已过去的时间（正=已过）
       // 窗口：在 endCheck ± goodWindow 内
-      if(nowTime >= endCheck - goodWindow && nowTime <= endCheck + goodWindow){
-        // 记录窗口开始时计数
-        if(n.tailCountAt === null){
-          n.tailCountAt = holdCount.get(n.rail) || 0;
-        }
+      // 尾判
+      if(nowTime >= endCheck0 - goodWindow && nowTime <= endCheck0 + goodWindow){
         const cur = holdCount.get(n.rail) || 0;
         if(n.endType === 'out'){
-          // 必须发生计数变化
-          if(cur !== n.tailCountAt){
-            // 变化发生：命中，按 tap 三档
-            const diff = Math.abs(t2s(nowTime - endCheck));
+          // 计数发生变化（松手或再按）→ 命中，按 tap 三档
+          if(cur !== n.tailLastCount){
+            const diff = Math.abs(t2s(nowTime - endCheck0));
             const g = gradeFromDiff(diff, false);
-            if(g){ addHit(g); }
+            if(g){ addHit(g, n.rail); }
             n.done = true;
             n.active = false;
           }
         } else if(n.endType === 'free'){
-          // free：不必须松手，窗口内直接算成功（用 drag 那套全 Perfect）
-          if(nowTime >= endCheck){
+          if(nowTime >= endCheck0){
             n.done = true;
             n.active = false;
-            // 尾判命中 +1 combo
-            combo++;
-            if(combo>maxCombo) maxCombo = combo;
-            updateCombo();
+            addHit('perfect', n.rail);
           }
         }
+        n.tailLastCount = cur;
+      }
+      
+      // 超过窗口还没触发 → miss
+      if(!n.done && nowTime > endCheck0 + goodWindow){
+        n.failed = true;
+        n.done = true;
+        n.active = false;
+        addMiss();
       }
 
       // 超过窗口还没触发 → miss
@@ -957,6 +1005,7 @@ function loop(ts){
     currentTime += s2t(dtSec);
     checkContinuous();
     autoMiss();
+    updateHitEffects(dtSec);
 
     if(allNotesDone() && t2s(currentTime - lastNoteTime) >= END_DELAY){
       endGame();
