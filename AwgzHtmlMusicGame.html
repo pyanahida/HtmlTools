@@ -11,6 +11,8 @@
   button{background:#222;color:#fff;border:1px solid #666;padding:6px 14px;
     cursor:pointer;font-family:monospace;}
   button:hover{background:#333;}
+  #err{position:fixed;top:0;left:0;right:0;background:#a00;color:#fff;
+    font-size:12px;padding:4px 8px;display:none;z-index:99;white-space:pre-wrap;}
   #wrap{position:relative;width:800px;height:600px;background:#000;}
   svg{display:block;width:800px;height:600px;background:#000;}
   #combo{position:absolute;top:16px;left:0;width:800px;text-align:center;
@@ -18,6 +20,7 @@
 </style>
 </head>
 <body>
+<div id="err"></div>
 <div id="ui">
   <button id="loadBtn">导入谱面</button>
   <input id="fileInput" type="file" accept=".xml" style="display:none">
@@ -29,30 +32,31 @@
 </div>
 
 <script>
+/* ===== 页面内错误显示 ===== */
+const errEl = document.getElementById('err');
+function showErr(msg){
+  errEl.style.display = 'block';
+  errEl.textContent = String(msg);
+}
+window.onerror = function(m, src, line, col){
+  showErr('Error: ' + m + ' @' + line + ':' + col);
+};
+
 /* ================= 基础参数 ================= */
-const W = 800, H = 600;
-const NOTE_SPEED = 200;          // px/s 固定流速
-const HIT_WINDOW = 0.060;        // 秒，±60ms
-const START_TIME = -8;           // 全局时间轴起点（四分音符单位）
+const NOTE_SPEED = 200;
+const HIT_WINDOW = 0.060;
+const START_TIME = -8;
 
 const svg = document.getElementById('stage');
 const comboEl = document.getElementById('combo');
 const songNameEl = document.getElementById('songName');
 
-/* ================= 谱面数据 ================= */
-let chart = null;   // { name,bpm,points,lines,taps,events }
+let chart = null;
+let points = {};
+let lines  = [];
+let taps   = [];
 
-/* 解析后的运行时结构 */
-let points = {};    // id -> {x,y, moves:[...]}
-let lines  = [];    // {id,startId,endId,rails:[], ...}
-let taps   = [];    // {lineId,rail,time,hit:false,missed:false}
-
-/* ================= 工具 ================= */
-const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
-
-/* time(四分音符单位) -> 秒 */
 function t2s(t){ return t * 60 / chart.bpm; }
-/* 秒 -> time */
 function s2t(s){ return s * chart.bpm / 60; }
 
 /* ================= 解析 XML ================= */
@@ -105,14 +109,13 @@ function parseChart(xmlDoc){
   return c;
 }
 
-/* ================= 初始化运行时 ================= */
+/* ================= 初始化 ================= */
 function buildRuntime(c){
   chart = c;
   points = {};
   for(const id in c.points){
     points[id] = { x:c.points[id].x, y:c.points[id].y, baseX:c.points[id].x, baseY:c.points[id].y, moves:[] };
   }
-  // 把 events 挂到对应点上，按 startTime 排序
   c.events.forEach(e=>{
     if(points[e.obj]) points[e.obj].moves.push(e);
   });
@@ -120,63 +123,49 @@ function buildRuntime(c){
     points[id].moves.sort((a,b)=>a.startTime-b.startTime);
   }
 
-  lines = c.lines.map(l=>{
-    const rails = l.rails.slice();
-    return { id:l.id, startId:l.start, endId:l.end, rails };
-  });
+  lines = c.lines.map(l=>({
+    id:l.id, startId:l.start, endId:l.end, rails: l.rails.slice()
+  }));
 
   taps = c.taps.map(t=>({
     lineId: t.line,
     rail: t.rail,
     time: t.time,
     hit: false,
-    missed: false
+    missed: false,
+    el: null
   }));
 
   songNameEl.textContent = ' ' + c.name + '  BPM:' + c.bpm;
 }
 
-/* ================= 点位置（含 pointmove 插值） ================= */
+/* ================= 点位置 ================= */
 function pointPos(p, nowTime){
-  // 从初始位置开始，按 moves 依次推进
   let x = p.baseX, y = p.baseY;
-  let curT = -Infinity;
   for(const m of p.moves){
-    if(nowTime <= m.startTime){
-      // 还没开始这条移动
-      break;
-    }
-    if(nowTime >= m.endTime){
-      // 这条移动已完成
-      x = m.toX; y = m.toY;
-      curT = m.endTime;
-      continue;
-    }
-    // 正在移动中：从当前位置匀速到目标
+    if(nowTime <= m.startTime) break;
+    if(nowTime >= m.endTime){ x = m.toX; y = m.toY; continue; }
     const span = m.endTime - m.startTime;
     const k = span<=0 ? 1 : (nowTime - m.startTime)/span;
-    // 起点取“上一条结束时的位置”，即当前 x,y
     x = x + (m.toX - x) * k;
     y = y + (m.toY - y) * k;
-    curT = nowTime;
     break;
   }
   return {x,y};
 }
 
-/* ================= 判定线几何 ================= */
+/* ================= 几何 ================= */
 function lineGeom(line, nowTime){
   const p0 = pointPos(points[line.startId], nowTime);
   const p1 = pointPos(points[line.endId], nowTime);
   let dx = p1.x - p0.x, dy = p1.y - p0.y;
   let len = Math.hypot(dx,dy);
   if(len < 1e-6){ dx=1; dy=0; len=1; }
-  const ux = dx/len, uy = dy/len;        // 方向：start -> end
-  const vx = -uy, vy = ux;               // 法向（左手法向）
+  const ux = dx/len, uy = dy/len;
+  const vx = -uy, vy = ux;
   return {p0,p1,ux,uy,vx,vy,len};
 }
 
-/* 某条轨的中心点（沿判定线等分） */
 function railCenter(g, railIndex, railCount){
   const seg = g.len / railCount;
   const d = seg * (railIndex + 0.5);
@@ -184,22 +173,19 @@ function railCenter(g, railIndex, railCount){
 }
 
 /* ================= 渲染 ================= */
-let svgLines = {};   // lineId -> {lineEl, borders:[], noteEls:[], railLabels:[]}
+let svgLines = {};
 
 function buildSvgForLines(){
   svg.innerHTML = '';
   svgLines = {};
   lines.forEach(l=>{
-    const g = lineGeom(l, START_TIME);
     const railCount = l.rails.length;
 
-    // 判定线：一条贯穿视口的长白线
     const lineEl = document.createElementNS('http://www.w3.org/2000/svg','line');
     lineEl.setAttribute('stroke','#fff');
     lineEl.setAttribute('stroke-width','2');
     svg.appendChild(lineEl);
 
-    // 边界线：railCount+1 条，灰色 50%
     const borders = [];
     for(let i=0;i<=railCount;i++){
       const el = document.createElementNS('http://www.w3.org/2000/svg','line');
@@ -209,16 +195,6 @@ function buildSvgForLines(){
       borders.push(el);
     }
 
-    // 音符元素
-    const noteEls = [];
-    taps.filter(t=>t.lineId===l.id).forEach(()=>{
-      const el = document.createElementNS('http://www.w3.org/2000/svg','rect');
-      el.setAttribute('fill','#fff');
-      svg.appendChild(el);
-      noteEls.push(el);
-    });
-
-    // 轨道字母：每条轨一个 text，位于轨中线与判定线交点
     const railLabels = [];
     l.rails.forEach(letter=>{
       const el = document.createElementNS('http://www.w3.org/2000/svg','text');
@@ -232,11 +208,22 @@ function buildSvgForLines(){
       railLabels.push(el);
     });
 
-    svgLines[l.id] = { lineEl, borders, noteEls, railLabels, railCount };
+    // 音符元素：直接建，绑到 tap
+    let noteCount = 0;
+    taps.forEach(tap=>{
+      if(tap.lineId !== l.id) return;
+      const el = document.createElementNS('http://www.w3.org/2000/svg','rect');
+      el.setAttribute('fill','#fff');
+      el.setAttribute('opacity','0');
+      svg.appendChild(el);
+      tap.el = el;
+      noteCount++;
+    });
+
+    svgLines[l.id] = { lineEl, borders, railLabels, railCount, noteCount };
   });
 }
 
-/* 把一条无限长直线画成穿过视口的长线段（够长即可） */
 const FAR = 5000;
 function setInfiniteLine(el, cx, cy, ux, uy){
   el.setAttribute('x1', cx - ux*FAR);
@@ -245,17 +232,15 @@ function setInfiniteLine(el, cx, cy, ux, uy){
   el.setAttribute('y2', cy + uy*FAR);
 }
 
-function render(nowTime, nowSec){
+function render(nowTime){
   for(const l of lines){
     const g = lineGeom(l, nowTime);
     const store = svgLines[l.id];
     if(!store) continue;
     const railCount = store.railCount;
 
-    // 判定线
     setInfiniteLine(store.lineEl, g.p0.x, g.p0.y, g.ux, g.uy);
 
-    // 边界线：在等分点处，沿法向画
     const seg = g.len / railCount;
     for(let i=0;i<=railCount;i++){
       const d = seg * i;
@@ -268,61 +253,56 @@ function render(nowTime, nowSec){
       el.setAttribute('y2', by + g.vy*FAR);
     }
 
-    // 轨道字母：放在轨中线与判定线交点
     for(let i=0;i<railCount;i++){
       const c = railCenter(g, i, railCount);
       const el = store.railLabels[i];
       el.setAttribute('x', c.x);
       el.setAttribute('y', c.y);
     }
-
-    // 音符
-    const lineTaps = taps.filter(t=>t.lineId===l.id);
-    lineTaps.forEach((tap, idx)=>{
-      const el = store.noteEls[idx];
-      if(tap.hit || tap.missed){ el.setAttribute('opacity','0'); return; }
-      const railIndex = l.rails.indexOf(tap.rail);
-      if(railIndex < 0){ el.setAttribute('opacity','0'); return; }
-
-      const center = railCenter(g, railIndex, railCount);
-      const segW = g.len / railCount;
-      const rectW = segW;
-      const rectH = rectW / 6;
-
-      // 剩余时间 -> 距离（秒），沿法向向外
-      const dtSec = t2s(tap.time - nowTime);
-      const dist = NOTE_SPEED * dtSec;   // 正=还没到，在法向正方向
-
-      // 音符中心：从 railCenter 沿 -v 方向（因为音符从“上方”U 落下）
-      const ncx = center.x - g.vx * dist;
-      const ncy = center.y - g.vy * dist;
-
-      el.setAttribute('x', ncx - rectW/2);
-      el.setAttribute('y', ncy - rectH/2);
-      el.setAttribute('width', rectW);
-      el.setAttribute('height', rectH);
-      el.setAttribute('opacity','1');
-
-      // 旋转：矩形长边沿判定线方向
-      const ang = Math.atan2(g.uy, g.ux) * 180/Math.PI;
-      el.setAttribute('transform',
-        `rotate(${ang} ${ncx} ${ncy})`);
-    });
   }
+
+  taps.forEach(tap=>{
+    const el = tap.el;
+    if(!el) return;
+    if(tap.hit || tap.missed){ el.setAttribute('opacity','0'); return; }
+
+    const l = lines.find(x=>x.id===tap.lineId);
+    if(!l){ el.setAttribute('opacity','0'); return; }
+    const g = lineGeom(l, nowTime);
+    const railCount = l.rails.length;
+    const railIndex = l.rails.indexOf(tap.rail);
+    if(railIndex < 0){ el.setAttribute('opacity','0'); return; }
+
+    const center = railCenter(g, railIndex, railCount);
+    const rectW = g.len / railCount;
+    const rectH = rectW / 6;
+
+    const dtSec = t2s(tap.time - nowTime);
+    const dist = NOTE_SPEED * dtSec;
+
+    const ncx = center.x - g.vx * dist;
+    const ncy = center.y - g.vy * dist;
+
+    el.setAttribute('x', ncx - rectW/2);
+    el.setAttribute('y', ncy - rectH/2);
+    el.setAttribute('width', rectW);
+    el.setAttribute('height', rectH);
+    el.setAttribute('opacity','1');
+
+    const ang = Math.atan2(g.uy, g.ux) * 180/Math.PI;
+    el.setAttribute('transform', `rotate(${ang} ${ncx} ${ncy})`);
+  });
 }
 
 /* ================= 判定 ================= */
 function judgeKey(letter){
   if(!chart) return;
   const nowTime = currentTime;
-  const nowSec = t2s(nowTime);
-
   let best = null, bestDiff = Infinity;
   for(const tap of taps){
     if(tap.hit || tap.missed) continue;
     if(tap.rail !== letter) continue;
-    // 找该轨当前最近的
-    const diff = Math.abs(t2s(tap.time - nowTime)); // 秒
+    const diff = Math.abs(t2s(tap.time - nowTime));
     if(diff < bestDiff){ bestDiff = diff; best = tap; }
   }
   if(!best) return;
@@ -330,13 +310,10 @@ function judgeKey(letter){
     best.hit = true;
     combo++;
     if(combo>maxCombo) maxCombo = combo;
-  } else {
-    // 按错了：不处理（或算 Miss？这里先不算）
   }
   updateCombo();
 }
 
-/* 自动 Miss：音符时间超过窗口还没打 */
 function autoMiss(){
   const nowTime = currentTime;
   for(const tap of taps){
@@ -354,17 +331,14 @@ function updateCombo(){
   comboEl.textContent = combo > 0 ? combo : '';
 }
 
-/* ================= 键盘 ================= */
 document.addEventListener('keydown', e=>{
   if(e.repeat) return;
   const k = e.key.toUpperCase();
-  if(k.length===1 && k>='A' && k<='Z'){
-    judgeKey(k);
-  }
+  if(k.length===1 && k>='A' && k<='Z') judgeKey(k);
 });
 
 /* ================= 主循环 ================= */
-let currentTime = START_TIME;   // 四分音符单位
+let currentTime = START_TIME;
 let lastTs = 0;
 let running = false;
 
@@ -373,16 +347,13 @@ function loop(ts){
   if(!lastTs) lastTs = ts;
   const dtSec = (ts - lastTs)/1000;
   lastTs = ts;
-
   currentTime += s2t(dtSec);
-
   autoMiss();
-  render(currentTime, t2s(currentTime));
-
+  render(currentTime);
   requestAnimationFrame(loop);
 }
 
-/* ================= 文件导入 ================= */
+/* ================= 导入 ================= */
 document.getElementById('loadBtn').onclick = ()=>{
   document.getElementById('fileInput').click();
 };
@@ -391,16 +362,21 @@ document.getElementById('fileInput').onchange = (e)=>{
   if(!f) return;
   const reader = new FileReader();
   reader.onload = ()=>{
-    const doc = new DOMParser().parseFromString(reader.result,'application/xml');
-    const c = parseChart(doc);
-    buildRuntime(c);
-    buildSvgForLines();
-    combo = 0; maxCombo = 0; updateCombo();
-    currentTime = START_TIME;
-    lastTs = 0;
-    running = true;
-    requestAnimationFrame(loop);
+    try{
+      const doc = new DOMParser().parseFromString(reader.result,'application/xml');
+      const c = parseChart(doc);
+      buildRuntime(c);
+      buildSvgForLines();
+      combo = 0; maxCombo = 0; updateCombo();
+      currentTime = START_TIME;
+      lastTs = 0;
+      running = true;
+      requestAnimationFrame(loop);
+    }catch(ex){
+      showErr('导入/初始化失败: ' + ex.message + '\n' + ex.stack);
+    }
   };
+  reader.onerror = ()=>{ showErr('文件读取失败'); };
   reader.readAsText(f);
 };
 </script>
