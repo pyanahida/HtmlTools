@@ -64,12 +64,12 @@
     <div class="row">
       <label>模式</label>
       <select id="modeSelect">
-        <option value="20">极限 ±20ms</option>
-        <option value="40">严格 ±40ms</option>
-        <option value="60" selected>一般 ±60ms</option>
-        <option value="80">轻松 ±80ms</option>
-        <option value="110">闭眼 ±110ms</option>
-        <option value="160">自由 ±160ms</option>
+        <option value="0">极限 P±20 G20-40</option>
+        <option value="1">严格 P±40 G40-70</option>
+        <option value="2" selected>一般 P±60 G60-90</option>
+        <option value="3">轻松 P±80 G80-110</option>
+        <option value="4">闭眼 P±110 G110-140</option>
+        <option value="5">自由 P±160 G160-250</option>
       </select>
     </div>
     <button id="loadBtn">导入谱面</button>
@@ -82,6 +82,7 @@
     <div class="line">SCORE <span id="rScore">0</span></div>
     <div class="line">MAX COMBO <span id="rCombo">0</span></div>
     <div class="line">PERFECT <span id="rPerfect">0</span></div>
+    <div class="line">GOOD <span id="rGood">0</span></div>
     <div class="line">MISS <span id="rMiss">0</span></div>
     <button id="backBtn">确认</button>
   </div>
@@ -103,12 +104,23 @@ const TOUCH_RADIUS = 100;
 
 const MAX_HP = 80;
 const SCORE_PERFECT = 5;
+const SCORE_GOOD = 3;
 const HP_MISS = -5;
 const END_DELAY = 1.0;
 
+/* 判定窗口（毫秒） */
+const MODES = [
+  { p: 20,  g: 40  },  // 极限
+  { p: 40,  g: 70  },  // 严格
+  { p: 60,  g: 90  },  // 一般
+  { p: 80,  g: 110 },  // 轻松
+  { p: 110, g: 140 },  // 闭眼
+  { p: 160, g: 250 }   // 自由
+];
+
 let noteSpeed = 200;
-let hitWindowMs = 60;
-let hitWindow = 0.060;
+let perfectWindow = 0.060;   // 秒
+let goodWindow = 0.090;      // 秒
 
 const svg = document.getElementById('stage');
 const comboEl = document.getElementById('combo');
@@ -123,6 +135,7 @@ const resultTitleEl = document.getElementById('resultTitle');
 const rScoreEl = document.getElementById('rScore');
 const rComboEl = document.getElementById('rCombo');
 const rPerfectEl = document.getElementById('rPerfect');
+const rGoodEl = document.getElementById('rGood');
 const rMissEl = document.getElementById('rMiss');
 const speedInput = document.getElementById('speedInput');
 const modeSelect = document.getElementById('modeSelect');
@@ -136,13 +149,12 @@ let taps   = [];
 let score = 0;
 let hp = MAX_HP;
 let combo = 0, maxCombo = 0;
-let perfectCount = 0, missCount = 0;
+let perfectCount = 0, goodCount = 0, missCount = 0;
 
-/* 输入状态 */
-const heldKeys = new Set();       // 键盘按住的字母
-const heldRails = new Set();      // 当前被按住的轨（键盘或触摸）
-const touchMap = new Map();       // identifier -> rail（该手指当前所在轨，可为 null）
-const railHoldCount = new Map();  // rail -> 触点数（仅统计触摸）
+const heldKeys = new Set();
+const heldRails = new Set();
+const touchMap = new Map();
+const railHoldCount = new Map();
 
 function t2s(t){ return t * 60 / chart.bpm; }
 function s2t(s){ return s * chart.bpm / 60; }
@@ -456,14 +468,27 @@ function updateCombo(){
 }
 
 /* ================= 判定 ================= */
-function hitTap(tap){
+/* grade: 'perfect' | 'good' */
+function hitTap(tap, grade){
   tap.hit = true;
   combo++;
   if(combo>maxCombo) maxCombo = combo;
-  score += SCORE_PERFECT;
-  perfectCount++;
+  if(grade === 'perfect'){
+    score += SCORE_PERFECT;
+    perfectCount++;
+  } else {
+    score += SCORE_GOOD;
+    goodCount++;
+  }
   updateCombo();
   updateHud();
+}
+
+/* 根据误差（秒）返回 grade 或 null */
+function gradeFromDiff(diffSec){
+  if(diffSec <= perfectWindow) return 'perfect';
+  if(diffSec <= goodWindow) return 'good';
+  return null;
 }
 
 function judgeKeyDown(letter){
@@ -477,7 +502,9 @@ function judgeKeyDown(letter){
     const diff = Math.abs(t2s(tap.time - nowTime));
     if(diff < bestDiff){ bestDiff = diff; best = tap; }
   }
-  if(best && bestDiff <= hitWindow) hitTap(best);
+  if(!best) return;
+  const grade = gradeFromDiff(bestDiff);
+  if(grade) hitTap(best, grade);
 }
 
 function checkDrags(){
@@ -486,9 +513,10 @@ function checkDrags(){
     if(tap.hit || tap.missed) continue;
     if(tap.type !== 'drag') continue;
     const diff = Math.abs(t2s(tap.time - nowTime));
-    if(diff > hitWindow) continue;
+    if(diff > goodWindow) continue;
     if(heldKeys.has(tap.rail) || heldRails.has(tap.rail)){
-      hitTap(tap);
+      const grade = gradeFromDiff(diff);
+      if(grade) hitTap(tap, grade);
     }
   }
 }
@@ -503,7 +531,7 @@ function autoMiss(){
   const nowTime = currentTime;
   for(const tap of taps){
     if(tap.hit || tap.missed) continue;
-    if(t2s(nowTime - tap.time) > hitWindow){
+    if(t2s(nowTime - tap.time) > goodWindow){
       tap.missed = true;
       combo = 0;
       missCount++;
@@ -545,6 +573,7 @@ function showResult(){
   rScoreEl.textContent = score;
   rComboEl.textContent = maxCombo;
   rPerfectEl.textContent = perfectCount;
+  rGoodEl.textContent = goodCount;
   rMissEl.textContent = missCount;
   resultEl.style.display = 'flex';
 }
@@ -597,7 +626,6 @@ function railAtPoint(clientX, clientY){
   return bestRail;
 }
 
-/* 轨按住计数（仅触屏用，键盘不计数） */
 function addRailHold(rail){
   const n = (railHoldCount.get(rail) || 0) + 1;
   railHoldCount.set(rail, n);
@@ -613,21 +641,19 @@ function removeRailHold(rail){
   }
 }
 
-/* 触摸开始 */
 svg.addEventListener('touchstart', e=>{
   e.preventDefault();
   if(!chart || !running) return;
   for(const t of e.changedTouches){
     const rail = railAtPoint(t.clientX, t.clientY);
-    touchMap.set(t.identifier, rail);   // 即使 null 也记录，避免混乱
+    touchMap.set(t.identifier, rail);
     if(rail){
       addRailHold(rail);
-      judgeKeyDown(rail);               // t 判定
+      judgeKeyDown(rail);
     }
   }
 }, {passive:false});
 
-/* 触摸移动：更新每根手指所在轨 */
 svg.addEventListener('touchmove', e=>{
   e.preventDefault();
   if(!chart || !running) return;
@@ -642,7 +668,6 @@ svg.addEventListener('touchmove', e=>{
   }
 }, {passive:false});
 
-/* 触摸结束：按 identifier 释放 */
 function endTouches(e){
   for(const t of e.changedTouches){
     if(!touchMap.has(t.identifier)) continue;
@@ -654,7 +679,6 @@ function endTouches(e){
 svg.addEventListener('touchend', e=>{ e.preventDefault(); endTouches(e); }, {passive:false});
 svg.addEventListener('touchcancel', e=>{ e.preventDefault(); endTouches(e); }, {passive:false});
 
-/* 鼠标（单点） */
 svg.addEventListener('mousedown', e=>{
   if(!chart || !running) return;
   const rail = railAtPoint(e.clientX, e.clientY);
@@ -696,8 +720,10 @@ document.getElementById('loadBtn').onclick = ()=>{
   speedInput.value = s;
   noteSpeed = 10 * s;
 
-  hitWindowMs = parseFloat(modeSelect.value) || 60;
-  hitWindow = hitWindowMs / 1000;
+  const idx = parseInt(modeSelect.value, 10) || 0;
+  const mode = MODES[idx] || MODES[2];
+  perfectWindow = mode.p / 1000;
+  goodWindow = mode.g / 1000;
 
   fileInput.click();
 };
@@ -717,7 +743,7 @@ fileInput.onchange = (e)=>{
       score = 0;
       hp = MAX_HP;
       combo = 0; maxCombo = 0;
-      perfectCount = 0; missCount = 0;
+      perfectCount = 0; goodCount = 0; missCount = 0;
       heldKeys.clear();
       heldRails.clear();
       touchMap.clear();
@@ -754,7 +780,7 @@ document.getElementById('backBtn').onclick = ()=>{
   hp = MAX_HP;
   score = 0;
   combo = 0; maxCombo = 0;
-  perfectCount = 0; missCount = 0;
+  perfectCount = 0; goodCount = 0; missCount = 0;
   updateCombo();
   updateHud();
 
