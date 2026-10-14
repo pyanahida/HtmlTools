@@ -23,6 +23,8 @@
   #home .row{display:flex;align-items:center;gap:8px;}
   #home input{width:80px;background:#111;color:#fff;border:1px solid #666;
     padding:6px;font-family:monospace;text-align:center;}
+  #home select{background:#111;color:#fff;border:1px solid #666;
+    padding:6px;font-family:monospace;}
   #home .hint{font-size:12px;color:#888;}
 
   #combo{position:absolute;top:16px;left:0;width:100%;text-align:center;
@@ -59,6 +61,17 @@
       <input id="speedInput" type="number" min="5" max="100" value="20">
     </div>
     <div class="hint">5 ~ 100，实际速度 = 10s px/s</div>
+    <div class="row">
+      <label>模式</label>
+      <select id="modeSelect">
+        <option value="20">极限 ±20ms</option>
+        <option value="40">严格 ±40ms</option>
+        <option value="60" selected>一般 ±60ms</option>
+        <option value="80">轻松 ±80ms</option>
+        <option value="110">闭眼 ±110ms</option>
+        <option value="160">自由 ±160ms</option>
+      </select>
+    </div>
     <button id="loadBtn">导入谱面</button>
     <input id="fileInput" type="file" accept=".xml" style="display:none">
     <div class="hint" id="songName"></div>
@@ -86,7 +99,6 @@ window.onerror = function(m, src, line, col){
 };
 
 /* ================= 基础参数 ================= */
-const HIT_WINDOW = 0.060;
 const TOUCH_RADIUS = 100;
 
 const MAX_HP = 80;
@@ -94,7 +106,9 @@ const SCORE_PERFECT = 5;
 const HP_MISS = -5;
 const END_DELAY = 1.0;
 
-let noteSpeed = 200;
+let noteSpeed = 200;         // px/s
+let hitWindowMs = 60;        // 判定窗口（毫秒）
+let hitWindow = 0.060;       // 换算成秒
 
 const svg = document.getElementById('stage');
 const comboEl = document.getElementById('combo');
@@ -111,6 +125,7 @@ const rComboEl = document.getElementById('rCombo');
 const rPerfectEl = document.getElementById('rPerfect');
 const rMissEl = document.getElementById('rMiss');
 const speedInput = document.getElementById('speedInput');
+const modeSelect = document.getElementById('modeSelect');
 const fileInput = document.getElementById('fileInput');
 
 let chart = null;
@@ -461,7 +476,7 @@ function judgeKeyDown(letter){
     const diff = Math.abs(t2s(tap.time - nowTime));
     if(diff < bestDiff){ bestDiff = diff; best = tap; }
   }
-  if(best && bestDiff <= HIT_WINDOW) hitTap(best);
+  if(best && bestDiff <= hitWindow) hitTap(best);
 }
 
 function checkDrags(){
@@ -470,7 +485,7 @@ function checkDrags(){
     if(tap.hit || tap.missed) continue;
     if(tap.type !== 'drag') continue;
     const diff = Math.abs(t2s(tap.time - nowTime));
-    if(diff > HIT_WINDOW) continue;
+    if(diff > hitWindow) continue;
     if(heldKeys.has(tap.rail) || heldRails.has(tap.rail)){
       hitTap(tap);
     }
@@ -487,7 +502,7 @@ function autoMiss(){
   const nowTime = currentTime;
   for(const tap of taps){
     if(tap.hit || tap.missed) continue;
-    if(t2s(nowTime - tap.time) > HIT_WINDOW){
+    if(t2s(nowTime - tap.time) > hitWindow){
       tap.missed = true;
       combo = 0;
       missCount++;
@@ -520,7 +535,6 @@ function endGame(){
 }
 
 function showResult(){
-  // 标题：hp<=0 -> LOST；hp==80 -> RECALL；否则 CLEAR
   let title;
   if(hp <= 0) title = 'LOST';
   else if(hp === MAX_HP) title = 'RECALL';
@@ -660,6 +674,10 @@ document.getElementById('loadBtn').onclick = ()=>{
   s = Math.max(5, Math.min(100, s));
   speedInput.value = s;
   noteSpeed = 10 * s;
+
+  hitWindowMs = parseFloat(modeSelect.value) || 60;
+  hitWindow = hitWindowMs / 1000;
+
   fileInput.click();
 };
 
@@ -705,7 +723,6 @@ document.getElementById('backBtn').onclick = ()=>{
   resultEl.style.display = 'none';
   homeEl.style.display = 'flex';
 
-  // 清空画面
   svg.innerHTML = '';
   chart = null;
   taps = [];
@@ -713,7 +730,6 @@ document.getElementById('backBtn').onclick = ()=>{
   points = {};
   svgLines = {};
 
-  // HP 恢复 80
   hp = MAX_HP;
   score = 0;
   combo = 0; maxCombo = 0;
@@ -721,7 +737,6 @@ document.getElementById('backBtn').onclick = ()=>{
   updateCombo();
   updateHud();
 
-  // 关键修复：清空 fileInput，允许再次选同一个文件
   fileInput.value = '';
 };
 
