@@ -17,7 +17,6 @@
   svg{display:block;width:800px;height:600px;background:#000;max-width:100vw;
     touch-action:none;-webkit-user-select:none;user-select:none;}
 
-  /* 主页面 */
   #home{position:absolute;inset:0;display:flex;flex-direction:column;
     align-items:center;justify-content:center;gap:16px;background:#000;z-index:10;}
   #home h1{font-size:32px;margin:0 0 8px 0;letter-spacing:4px;}
@@ -26,7 +25,6 @@
     padding:6px;font-family:monospace;text-align:center;}
   #home .hint{font-size:12px;color:#888;}
 
-  /* 游戏内 HUD */
   #combo{position:absolute;top:16px;left:0;width:100%;text-align:center;
     font-size:28px;color:#fff;pointer-events:none;text-shadow:0 0 6px #fff8;}
   #hud{position:absolute;left:12px;bottom:12px;pointer-events:none;
@@ -34,11 +32,10 @@
   #hud .hpbar{width:120px;height:10px;border:1px solid #666;margin-top:2px;}
   #hud .hpfill{height:100%;background:#fff;width:100%;}
 
-  /* 结算 */
   #result{position:absolute;inset:0;display:none;flex-direction:column;
     align-items:center;justify-content:center;gap:12px;
     background:rgba(0,0,0,0.85);z-index:20;}
-  #result h2{font-size:28px;margin:0 0 12px 0;}
+  #result h2{font-size:32px;margin:0 0 12px 0;letter-spacing:4px;}
   #result .line{font-size:18px;}
   #result button{margin-top:16px;}
 </style>
@@ -55,7 +52,6 @@
     <div class="hpbar"><div class="hpfill" id="hpfill"></div></div>
   </div>
 
-  <!-- 主页 -->
   <div id="home">
     <h1>AWGZ</h1>
     <div class="row">
@@ -68,7 +64,6 @@
     <div class="hint" id="songName"></div>
   </div>
 
-  <!-- 结算 -->
   <div id="result">
     <h2 id="resultTitle">RESULT</h2>
     <div class="line">SCORE <span id="rScore">0</span></div>
@@ -97,9 +92,8 @@ const TOUCH_RADIUS = 100;
 const MAX_HP = 80;
 const SCORE_PERFECT = 5;
 const HP_MISS = -5;
-const END_DELAY = 1.0;   // 最后一个音符结束后等待秒数
+const END_DELAY = 1.0;
 
-/* 流速：s（5~100） -> 10s px/s */
 let noteSpeed = 200;
 
 const svg = document.getElementById('stage');
@@ -117,19 +111,18 @@ const rComboEl = document.getElementById('rCombo');
 const rPerfectEl = document.getElementById('rPerfect');
 const rMissEl = document.getElementById('rMiss');
 const speedInput = document.getElementById('speedInput');
+const fileInput = document.getElementById('fileInput');
 
 let chart = null;
 let points = {};
 let lines  = [];
 let taps   = [];
 
-/* 游戏状态 */
 let score = 0;
 let hp = MAX_HP;
 let combo = 0, maxCombo = 0;
 let perfectCount = 0, missCount = 0;
 
-/* 输入状态 */
 const heldKeys = new Set();
 const heldRails = new Set();
 const touchMap = new Map();
@@ -527,6 +520,13 @@ function endGame(){
 }
 
 function showResult(){
+  // 标题：hp<=0 -> LOST；hp==80 -> RECALL；否则 CLEAR
+  let title;
+  if(hp <= 0) title = 'LOST';
+  else if(hp === MAX_HP) title = 'RECALL';
+  else title = 'CLEAR';
+
+  resultTitleEl.textContent = title;
   rScoreEl.textContent = score;
   rComboEl.textContent = maxCombo;
   rPerfectEl.textContent = perfectCount;
@@ -548,7 +548,7 @@ document.addEventListener('keyup', e=>{
   if(k.length===1 && k>='A' && k<='Z') heldKeys.delete(k);
 });
 
-/* ================= 触屏/鼠标（多指） ================= */
+/* ================= 触屏/鼠标 ================= */
 function screenToSvg(clientX, clientY){
   const rect = svg.getBoundingClientRect();
   const vbW = 800, vbH = 600;
@@ -634,7 +634,6 @@ svg.addEventListener('mouseup', e=>{
 let currentTime = 0;
 let lastTs = 0;
 let running = false;
-let endTimer = 0;   // 结束后等待计时（秒）
 
 function loop(ts){
   if(!lastTs) lastTs = ts;
@@ -646,7 +645,6 @@ function loop(ts){
     checkDrags();
     autoMiss();
 
-    // 最后一个音符结束 + 全部判定完 + 等 1 秒 -> 结算
     if(allNotesDone() && t2s(currentTime - lastNoteTime) >= END_DELAY){
       endGame();
     }
@@ -657,15 +655,15 @@ function loop(ts){
 
 /* ================= 主页 / 导入 ================= */
 document.getElementById('loadBtn').onclick = ()=>{
-  // 读取流速
   let s = parseFloat(speedInput.value);
   if(isNaN(s)) s = 20;
   s = Math.max(5, Math.min(100, s));
   speedInput.value = s;
-  noteSpeed = 10 * s;   // 10s px/s
-  document.getElementById('fileInput').click();
+  noteSpeed = 10 * s;
+  fileInput.click();
 };
-document.getElementById('fileInput').onchange = (e)=>{
+
+fileInput.onchange = (e)=>{
   const f = e.target.files[0];
   if(!f) return;
   const reader = new FileReader();
@@ -706,16 +704,27 @@ document.getElementById('fileInput').onchange = (e)=>{
 document.getElementById('backBtn').onclick = ()=>{
   resultEl.style.display = 'none';
   homeEl.style.display = 'flex';
+
   // 清空画面
   svg.innerHTML = '';
   chart = null;
   taps = [];
   lines = [];
   points = {};
+  svgLines = {};
+
+  // HP 恢复 80
+  hp = MAX_HP;
+  score = 0;
+  combo = 0; maxCombo = 0;
+  perfectCount = 0; missCount = 0;
   updateCombo();
+  updateHud();
+
+  // 关键修复：清空 fileInput，允许再次选同一个文件
+  fileInput.value = '';
 };
 
-/* 起始就显示主页 */
 homeEl.style.display = 'flex';
 </script>
 </body>
