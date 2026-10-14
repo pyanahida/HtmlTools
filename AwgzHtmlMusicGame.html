@@ -184,7 +184,7 @@ function railCenter(g, railIndex, railCount){
 }
 
 /* ================= 渲染 ================= */
-let svgLines = {};   // lineId -> {lineEl, borders:[], noteEls:[]}
+let svgLines = {};   // lineId -> {lineEl, borders:[], noteEls:[], railLabels:[]}
 
 function buildSvgForLines(){
   svg.innerHTML = '';
@@ -218,7 +218,21 @@ function buildSvgForLines(){
       noteEls.push(el);
     });
 
-    svgLines[l.id] = { lineEl, borders, noteEls, railCount };
+    // 轨道字母：每条轨一个 text，位于轨中线与判定线交点
+    const railLabels = [];
+    l.rails.forEach(letter=>{
+      const el = document.createElementNS('http://www.w3.org/2000/svg','text');
+      el.textContent = letter;
+      el.setAttribute('fill','#fff');
+      el.setAttribute('font-size','14');
+      el.setAttribute('font-family','monospace');
+      el.setAttribute('text-anchor','middle');
+      el.setAttribute('dominant-baseline','middle');
+      svg.appendChild(el);
+      railLabels.push(el);
+    });
+
+    svgLines[l.id] = { lineEl, borders, noteEls, railLabels, railCount };
   });
 }
 
@@ -254,6 +268,14 @@ function render(nowTime, nowSec){
       el.setAttribute('y2', by + g.vy*FAR);
     }
 
+    // 轨道字母：放在轨中线与判定线交点
+    for(let i=0;i<railCount;i++){
+      const c = railCenter(g, i, railCount);
+      const el = store.railLabels[i];
+      el.setAttribute('x', c.x);
+      el.setAttribute('y', c.y);
+    }
+
     // 音符
     const lineTaps = taps.filter(t=>t.lineId===l.id);
     lineTaps.forEach((tap, idx)=>{
@@ -272,8 +294,6 @@ function render(nowTime, nowSec){
       const dist = NOTE_SPEED * dtSec;   // 正=还没到，在法向正方向
 
       // 音符中心：从 railCenter 沿 -v 方向（因为音符从“上方”U 落下）
-      // 这里 U 定义为从判定线上方来：法向 v 指向上侧时，音符中心 = center + v*dist
-      // 为保证从上方落下，取 v 作为“来向”
       const ncx = center.x - g.vx * dist;
       const ncy = center.y - g.vy * dist;
 
