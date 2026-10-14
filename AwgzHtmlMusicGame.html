@@ -86,10 +86,12 @@ let score = 0;
 let hp = MAX_HP;
 let combo = 0, maxCombo = 0;
 
+/* 输入状态 */
+const heldKeys = new Set();     // 按住的字母键
+const heldRails = new Set();    // 手机端按住的轨
+
 function t2s(t){ return t * 60 / chart.bpm; }
 function s2t(s){ return s * chart.bpm / 60; }
-
-/* 起始时间：-bpm/30，等效提前 2 秒 */
 function startTime(){ return -chart.bpm / 30; }
 
 /* ================= 解析 XML ================= */
@@ -117,25 +119,52 @@ function parseChart(xmlDoc){
       id: l.getAttribute('id'),
       start: l.getAttribute('start'),
       end: l.getAttribute('end'),
-      rails: (l.getAttribute('rails')||'').trim().split(/\s+/).filter(Boolean)
+      rails: (l.getAttribute('rails')||'').trim().split(/\s+/).filter(Boolean),
+      alpha: l.hasAttribute('alpha') ? parseFloat(l.getAttribute('alpha')) : 1,
+      railBorderAlpha: l.hasAttribute('railBorderAlpha') ? parseFloat(l.getAttribute('railBorderAlpha')) : 0.5,
+      alphaEvents: [],
+      railBorderAlphaEvents: []
     });
   });
 
-  root.querySelectorAll('taps > t').forEach(t=>{
+  // t 和 d
+  root.querySelectorAll('taps > t, taps > d').forEach(el=>{
+    const isDrag = el.tagName.toLowerCase() === 'd';
     c.taps.push({
-      line: t.getAttribute('online'),
-      rail: t.getAttribute('onrail'),
-      time: parseFloat(t.getAttribute('time'))
+      line: el.getAttribute('online'),
+      rail: el.getAttribute('onrail'),
+      time: parseFloat(el.getAttribute('time')),
+      type: isDrag ? 'drag' : 'tap'
     });
   });
 
+  // events
   root.querySelectorAll('events > pointmove').forEach(m=>{
     c.events.push({
+      kind: 'pointmove',
       obj: m.getAttribute('obj'),
       startTime: parseFloat(m.getAttribute('startTime')),
       endTime: parseFloat(m.getAttribute('endTime')),
       toX: parseFloat(m.getAttribute('toX')),
       toY: parseFloat(m.getAttribute('toY'))
+    });
+  });
+
+  root.querySelectorAll('events > lineAlphaChange').forEach(el=>{
+    c.events.push({
+      kind: 'lineAlphaChange',
+      startTime: parseFloat(el.getAttribute('startTime')),
+      endTime: parseFloat(el.getAttribute('endTime')),
+      endAlpha: parseFloat(el.getAttribute('endAlpha'))
+    });
+  });
+
+  root.querySelectorAll('events > railBorderAlphaChange').forEach(el=>{
+    c.events.push({
+      kind: 'railBorderAlphaChange',
+      startTime: parseFloat(el.getAttribute('startTime')),
+      endTime: parseFloat(el.getAttribute('endTime')),
+      endAlpha: parseFloat(el.getAttribute('endAlpha'))
     });
   });
 
@@ -151,20 +180,37 @@ function buildRuntime(c){
                    baseX:c.points[id].x, baseY:c.points[id].y, moves:[] };
   }
   c.events.forEach(e=>{
-    if(points[e.obj]) points[e.obj].moves.push(e);
+    if(e.kind==='pointmove' && points[e.obj]) points[e.obj].moves.push(e);
   });
   for(const id in points){
     points[id].moves.sort((a,b)=>a.startTime-b.startTime);
   }
 
-  lines = c.lines.map(l=>({
-    id:l.id, startId:l.start, endId:l.end, rails: l.rails.slice()
-  }));
+  lines = c.lines.map(l=>{
+    const alphaEvents = c.events
+      .filter(e=>e.kind==='lineAlphaChange')
+      .sort((a,b)=>a.startTime-b.startTime);
+    const rbEvents = c.events
+      .filter(e=>e.kind==='railBorderAlphaChange')
+      .sort((a,b)=>a.startTime-b.startTime);
+    return {
+      id: l.id, startId: l.start, endId: l.end, rails: l.rails.slice(),
+      baseAlpha: l.alpha,
+      baseRailBorderAlpha: l.railBorderAlpha,
+      alpha: l.alpha,
+      railBorderAlpha: l.railBorderAlpha,
+      alphaEvents,
+      railBorderAlphaEvents: rbEvents,
+      alphaEventsDone: false,
+      rbEventsDone: false
+    };
+  });
 
   taps = c.taps.map(t=>({
     lineId: t.line,
     rail: t.rail,
     time: t.time,
+    type: t.type,
     hit: false,
     missed: false,
     el: null
@@ -186,6 +232,20 @@ function pointPos(p, nowTime){
     break;
   }
   return {x,y};
+}
+
+/* 透明度事件：从当前值线性到 endAlpha */
+function applyAlphaEvents(base, events, nowTime){
+  let val = base;
+  for(const e of events){
+    if(nowTime <= e.startTime) break;
+    if(nowTime >= e.endTime){ val = e.endAlpha; continue; }
+    const span = e.endTime - e.startTime;
+    const k = span<=0 ? 1 : (nowTime - e.startTime)/span;
+    val = val + (e.endAlpha - val) * k;
+    break;
+  }
+  return val;
 }
 
 /* ================= 判定线几何 ================= */
@@ -223,7 +283,7 @@ function buildSvgForLines(){
     const borders = [];
     for(let i=0;i<=railCount;i++){
       const el = document.createElementNS('http://www.w3.org/2000/svg','line');
-      el.setAttribute('stroke','rgba(128,128,128,0.5)');
+      el.setAttribute('stroke','#808080');
       el.setAttribute('stroke-width','1');
       svg.appendChild(el);
       borders.push(el);
@@ -274,6 +334,15 @@ function render(nowTime){
     if(!store) continue;
     const railCount = store.railCount;
 
+    // 透明度
+    l.alpha = applyAlphaEvents(l.baseAlpha, l.alphaEvents, nowTime);
+    l.railBorderAlpha = applyAlphaEvents(l.baseRailBorderAlpha, l.railBorderAlphaEvents, nowTime);
+
+    store.lineEl.setAttribute('opacity', l.alpha);
+    store.borders.forEach(b=>{
+      b.setAttribute('stroke', 'rgba(128,128,128,' + l.railBorderAlpha + ')');
+    });
+
     setInfiniteLine(store.lineEl, g.p0.x, g.p0.y, g.ux, g.uy);
 
     const seg = g.len / railCount;
@@ -310,7 +379,7 @@ function render(nowTime){
 
     const center = railCenter(g, railIndex, railCount);
     const rectW = g.len / railCount;
-    const rectH = rectW / 6;
+    const rectH = tap.type === 'drag' ? rectW / 15 : rectW / 6;
 
     const dtSec = t2s(tap.time - nowTime);
     const dist = NOTE_SPEED * dtSec;
@@ -336,43 +405,53 @@ function updateHud(){
   const pct = Math.max(0, Math.min(1, hp / MAX_HP)) * 100;
   hpFillEl.style.width = pct + '%';
 }
-
 function updateCombo(){
   comboEl.textContent = combo > 0 ? combo : '';
 }
 
 /* ================= 判定 ================= */
-function judgeKey(letter){
+function hitTap(tap){
+  tap.hit = true;
+  combo++;
+  if(combo>maxCombo) maxCombo = combo;
+  score += SCORE_PERFECT;
+  updateCombo();
+  updateHud();
+}
+
+// t：按下瞬间判定
+function judgeKeyDown(letter){
   if(!chart || !running) return;
   const nowTime = currentTime;
-
   let best = null, bestDiff = Infinity;
   for(const tap of taps){
     if(tap.hit || tap.missed) continue;
+    if(tap.type !== 'tap') continue;
     if(tap.rail !== letter) continue;
     const diff = Math.abs(t2s(tap.time - nowTime));
     if(diff < bestDiff){ bestDiff = diff; best = tap; }
   }
-  if(!best) return;
-  if(bestDiff <= HIT_WINDOW){
-    best.hit = true;
-    combo++;
-    if(combo>maxCombo) maxCombo = combo;
-    score += SCORE_PERFECT;
-    updateCombo();
-    updateHud();
+  if(best && bestDiff <= HIT_WINDOW) hitTap(best);
+}
+
+// d：按住/划过判定（每帧检查）
+function checkDrags(){
+  const nowTime = currentTime;
+  for(const tap of taps){
+    if(tap.hit || tap.missed) continue;
+    if(tap.type !== 'drag') continue;
+    const diff = Math.abs(t2s(tap.time - nowTime));
+    if(diff > HIT_WINDOW) continue;
+    if(heldKeys.has(tap.rail) || heldRails.has(tap.rail)){
+      hitTap(tap);
+    }
   }
 }
 
 function loseHp(amount){
   hp += amount;
-  if(hp <= 0){
-    hp = 0;
-    updateHud();
-    endGame();
-  } else {
-    updateHud();
-  }
+  if(hp <= 0){ hp = 0; updateHud(); endGame(); }
+  else updateHud();
 }
 
 function autoMiss(){
@@ -398,12 +477,20 @@ function endGame(){
 
 /* ================= 键盘 ================= */
 document.addEventListener('keydown', e=>{
-  if(e.repeat) return;
   const k = e.key.toUpperCase();
-  if(k.length===1 && k>='A' && k<='Z') judgeKey(k);
+  if(k.length!==1 || k<'A' || k>'Z') return;
+  if(!e.repeat){
+    heldKeys.add(k);
+    judgeKeyDown(k);   // t 判定
+  }
+  // d 的判定放到每帧 checkDrags
+});
+document.addEventListener('keyup', e=>{
+  const k = e.key.toUpperCase();
+  if(k.length===1 && k>='A' && k<='Z') heldKeys.delete(k);
 });
 
-/* ================= 触屏/鼠标点击判定 ================= */
+/* ================= 触屏/鼠标 ================= */
 function screenToSvg(clientX, clientY){
   const rect = svg.getBoundingClientRect();
   const vbW = 800, vbH = 600;
@@ -417,11 +504,10 @@ function screenToSvg(clientX, clientY){
   };
 }
 
-function handlePointer(clientX, clientY){
-  if(!chart || !running) return;
+function railAtPoint(clientX, clientY){
+  if(!chart) return null;
   const p = screenToSvg(clientX, clientY);
   const nowTime = currentTime;
-
   let bestRail = null, bestDist = Infinity;
   for(const l of lines){
     const g = lineGeom(l, nowTime);
@@ -435,16 +521,44 @@ function handlePointer(clientX, clientY){
       }
     }
   }
-  if(bestRail) judgeKey(bestRail);
+  return bestRail;
 }
 
 svg.addEventListener('touchstart', e=>{
   e.preventDefault();
-  for(const t of e.changedTouches) handlePointer(t.clientX, t.clientY);
+  if(!chart || !running) return;
+  for(const t of e.changedTouches){
+    const rail = railAtPoint(t.clientX, t.clientY);
+    if(rail){
+      heldRails.add(rail);
+      judgeKeyDown(rail);   // t 判定（和键盘一致）
+    }
+  }
+}, {passive:false});
+
+svg.addEventListener('touchend', e=>{
+  e.preventDefault();
+  for(const t of e.changedTouches){
+    const rail = railAtPoint(t.clientX, t.clientY);
+    if(rail) heldRails.delete(rail);
+  }
+}, {passive:false});
+
+svg.addEventListener('touchcancel', e=>{
+  for(const t of e.changedTouches){
+    const rail = railAtPoint(t.clientX, t.clientY);
+    if(rail) heldRails.delete(rail);
+  }
 }, {passive:false});
 
 svg.addEventListener('mousedown', e=>{
-  handlePointer(e.clientX, e.clientY);
+  if(!chart || !running) return;
+  const rail = railAtPoint(e.clientX, e.clientY);
+  if(rail){ heldRails.add(rail); judgeKeyDown(rail); }
+});
+svg.addEventListener('mouseup', e=>{
+  const rail = railAtPoint(e.clientX, e.clientY);
+  if(rail) heldRails.delete(rail);
 });
 
 /* ================= 主循环 ================= */
@@ -458,6 +572,7 @@ function loop(ts){
   const dtSec = (ts - lastTs)/1000;
   lastTs = ts;
   currentTime += s2t(dtSec);
+  checkDrags();
   autoMiss();
   if(running) render(currentTime);
   requestAnimationFrame(loop);
@@ -478,10 +593,11 @@ document.getElementById('fileInput').onchange = (e)=>{
       buildRuntime(c);
       buildSvgForLines();
 
-      // 重置状态
       score = 0;
       hp = MAX_HP;
       combo = 0; maxCombo = 0;
+      heldKeys.clear();
+      heldRails.clear();
       updateCombo();
       updateHud();
       gameoverEl.style.display = 'none';
