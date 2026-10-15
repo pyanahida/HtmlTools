@@ -40,6 +40,15 @@
   #result h2{font-size:32px;margin:0 0 12px 0;letter-spacing:4px;}
   #result .line{font-size:18px;}
   #result button{margin-top:16px;}
+  
+  #pauseBtn{position:absolute;top:12px;left:12px;z-index:15;
+    background:#222;color:#fff;border:1px solid #666;padding:4px 12px;
+    font-family:monospace;cursor:pointer;font-size:14px;}
+  #pauseBtn:hover{background:#333;}
+  #pauseMenu{position:absolute;inset:0;display:none;flex-direction:column;
+    align-items:center;justify-content:center;gap:14px;
+    background:rgba(0,0,0,0.85);z-index:20;}
+  #pauseMenu button{min-width:160px;}
 </style>
 <script>
 (function(){
@@ -99,6 +108,13 @@
     <div class="line">MISS <span id="rMiss">0</span></div>
     <button id="backBtn">确认</button>
   </div>
+  
+  <button id="pauseBtn">暂停</button>
+  <div id="pauseMenu">
+    <button id="resumeBtn">继续游玩</button>
+    <button id="restartBtn">从头重新开始</button>
+    <button id="homeBtn">回到主页面</button>
+  </div>
 </div>
 
 <script>
@@ -154,6 +170,11 @@ const rPerfectEl = document.getElementById('rPerfect');
 const rGoodEl = document.getElementById('rGood');
 const rMissEl = document.getElementById('rMiss');
 const speedInput = document.getElementById('speedInput');
+const pauseBtn = document.getElementById('pauseBtn');
+const pauseMenu = document.getElementById('pauseMenu');
+const resumeBtn = document.getElementById('resumeBtn');
+const restartBtn = document.getElementById('restartBtn');
+const homeBtn = document.getElementById('homeBtn');
 const modeSelect = document.getElementById('modeSelect');
 const fileInput = document.getElementById('fileInput');
 
@@ -189,7 +210,7 @@ function parseChart(xmlDoc){
     offset: root.hasAttribute('offset') ? parseFloat(root.getAttribute('offset')) : 0,
     points: {},
     lines: [],
-    notes: [], // 修改了这里
+    notes: [],
     events: []
   };
 
@@ -667,7 +688,7 @@ function railHeld(rail){
 
 /* 判定：按下（t 判定 + hold 头判） */
 function judgeKeyDown(letter){
-  if(!chart || !running) return;
+  if(!chart || !running || paused) return;
   const nowTime = currentTime;
 
   // t
@@ -872,6 +893,7 @@ function endGame(){
 }
 
 function showResult(){
+  pauseBtn.style.display = 'none';
   let title;
   if(hp <= 0) title = 'LOST';
   else if(hp === MAX_HP) title = 'RECALL';
@@ -1014,13 +1036,23 @@ svg.addEventListener('mouseup', e=>{
 let currentTime = 0;
 let lastTs = 0;
 let running = false;
+let paused = false;          // 是否处于暂停
+let resumeDelay = 0;         // 继续前的等待秒数
 
 function loop(ts){
   if(!lastTs) lastTs = ts;
   const dtSec = (ts - lastTs)/1000;
   lastTs = ts;
 
-  if(running){
+  if(running && !paused){
+    // 继续游玩：先等 1 秒
+    if(resumeDelay > 0){
+      resumeDelay -= dtSec;
+      lastTs = ts;
+      requestAnimationFrame(loop);
+      return;
+    }
+  
     currentTime += s2t(dtSec);
     
     // 音频：time 到 0 后延迟 offset 毫秒播放（offset 可为负）
@@ -1088,6 +1120,8 @@ function startGameFromXml(xmlText){
     updateHud();
 
     homeEl.style.display = 'none';
+    pauseBtn.style.display = 'block';
+    pauseMenu.style.display = 'none';
     resultEl.style.display = 'none';
 
     currentTime = startTime();
@@ -1157,6 +1191,84 @@ document.getElementById('backBtn').onclick = ()=>{
   updateHud();
 
   fileInput.value = '';
+  pauseBtn.style.display = 'none';
+};
+
+pauseBtn.onclick = ()=>{
+  if(!running || paused) return;
+  paused = true;
+  if(audioEl) audioEl.pause();
+  pauseMenu.style.display = 'flex';
+};
+
+resumeBtn.onclick = ()=>{
+  pauseMenu.style.display = 'none';
+  paused = false;
+  resumeDelay = 1.0;          // 等 1 秒
+  lastTs = 0;                 // 防止暂停期间累计的时间差
+  if(audioEl) audioEl.play().catch(()=>{});
+};
+
+restartBtn.onclick = ()=>{
+  pauseMenu.style.display = 'none';
+  paused = false;
+  resumeDelay = 0;
+  // 重置游戏状态
+  score = 0;
+  hp = MAX_HP;
+  combo = 0; maxCombo = 0;
+  perfectCount = 0; goodCount = 0; missCount = 0;
+  heldKeys.clear();
+  heldRails.clear();
+  touchMap.clear();
+  railHoldCount.clear();
+  holdCount.clear();
+  updateCombo();
+  updateHud();
+  // 重置每个音符
+  for(const n of notes){
+    if(n.type === 'hold'){
+      n.headHit = false; n.active = false; n.failed = false; n.done = false;
+      n.comboAcc = 0; n.tailLastCount = 1;
+    } else {
+      n.hit = false; n.missed = false;
+    }
+  }
+  currentTime = startTime();
+  lastTs = 0;
+  audioStarted = false;
+  if(audioEl){ audioEl.pause(); audioEl.currentTime = 0; }
+  gameoverEl.style.display = 'none';
+  resultEl.style.display = 'none';
+  running = true;
+  requestAnimationFrame(loop);
+};
+
+homeBtn.onclick = ()=>{
+  pauseMenu.style.display = 'none';
+  paused = false;
+  resumeDelay = 0;
+  running = false;
+  releaseAudio();
+
+  svg.innerHTML = '';
+  chart = null;
+  notes = [];
+  lines = [];
+  points = {};
+  svgLines = {};
+
+  hp = MAX_HP;
+  score = 0;
+  combo = 0; maxCombo = 0;
+  perfectCount = 0; goodCount = 0; missCount = 0;
+  updateCombo();
+  updateHud();
+
+  resultEl.style.display = 'none';
+  homeEl.style.display = 'flex';
+  fileInput.value = '';
+  pauseBtn.style.display = 'none';
 };
 
 homeEl.style.display = 'flex';
