@@ -189,7 +189,7 @@ function parseChart(xmlDoc){
     offset: root.hasAttribute('offset') ? parseFloat(root.getAttribute('offset')) : 0,
     points: {},
     lines: [],
-    taps: [],
+    notes: [], // 修改了这里
     events: []
   };
 
