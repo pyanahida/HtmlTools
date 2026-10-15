@@ -41,6 +41,19 @@
   #result .line{font-size:18px;}
   #result button{margin-top:16px;}
 </style>
+<script>
+(function(){
+  // 先试 CDN，onerror 回退本地
+  var s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+  s.onerror = function(){
+    var local = document.createElement('script');
+    local.src = 'jszip.min.js';
+    document.head.appendChild(local);
+  };
+  document.head.appendChild(s);
+})();
+</script>
 </head>
 <body>
 <div id="err"></div>
@@ -73,7 +86,7 @@
       </select>
     </div>
     <button id="loadBtn">导入谱面</button>
-    <input id="fileInput" type="file" accept=".xml" style="display:none">
+    <input id="fileInput" type="file" accept=".xml,.zip" style="display:none">
     <div class="hint" id="songName"></div>
   </div>
 
@@ -118,6 +131,10 @@ const MODES = [
 ];
 
 let noteSpeed = 200;
+let audioEl = null;      // HTMLAudioElement
+let audioUrl = null;     // 当前 blob url
+let chartOffset = 0;     // 毫秒，来自 data 的 offset
+let audioStarted = false;
 let perfectWindow = 0.060;
 let goodWindow = 0.090;
 
@@ -169,9 +186,10 @@ function parseChart(xmlDoc){
   const c = {
     name: root.getAttribute('name') || '',
     bpm: parseFloat(root.getAttribute('bpm')) || 60,
+    offset: root.hasAttribute('offset') ? parseFloat(root.getAttribute('offset')) : 0,
     points: {},
     lines: [],
-    notes: [],
+    taps: [],
     events: []
   };
 
@@ -251,6 +269,7 @@ function parseChart(xmlDoc){
 /* ================= 初始化运行时 ================= */
 function buildRuntime(c){
   chart = c;
+  chartOffset = c.offset || 0;
   points = {};
   for(const id in c.points){
     points[id] = { x:c.points[id].x, y:c.points[id].y,
@@ -1003,6 +1022,17 @@ function loop(ts){
 
   if(running){
     currentTime += s2t(dtSec);
+    
+    // 音频：time 到 0 后延迟 offset 毫秒播放（offset 可为负）
+    if(audioEl && !audioStarted){
+      const sinceZeroSec = t2s(currentTime);
+      const triggerSec = chartOffset / 1000;
+      if(sinceZeroSec >= triggerSec){
+        audioEl.play().catch(()=>{});
+        audioStarted = true;
+      }
+    }
+
     checkContinuous();
     autoMiss();
     updateHitEffects(dtSec);
@@ -1031,46 +1061,84 @@ document.getElementById('loadBtn').onclick = ()=>{
   fileInput.click();
 };
 
+function releaseAudio(){
+  if(audioEl){ try{ audioEl.pause(); }catch(e){} audioEl = null; }
+  if(audioUrl){ URL.revokeObjectURL(audioUrl); audioUrl = null; }
+  audioStarted = false;
+}
+
+function startGameFromXml(xmlText){
+  try{
+    const doc = new DOMParser().parseFromString(xmlText,'application/xml');
+    const c = parseChart(doc);
+    buildRuntime(c);
+    buildSvgForLines();
+    computeLastNoteTime();
+
+    score = 0;
+    hp = MAX_HP;
+    combo = 0; maxCombo = 0;
+    perfectCount = 0; goodCount = 0; missCount = 0;
+    heldKeys.clear();
+    heldRails.clear();
+    touchMap.clear();
+    railHoldCount.clear();
+    holdCount.clear();
+    updateCombo();
+    updateHud();
+
+    homeEl.style.display = 'none';
+    resultEl.style.display = 'none';
+
+    currentTime = startTime();
+    lastTs = 0;
+    audioStarted = false;
+
+    if(audioEl) audioEl.currentTime = 0;
+
+    running = true;
+    requestAnimationFrame(loop);
+  }catch(ex){
+    showErr('导入/初始化失败: ' + ex.message + '\n' + ex.stack);
+  }
+}
+
 fileInput.onchange = (e)=>{
   const f = e.target.files[0];
   if(!f) return;
-  const reader = new FileReader();
-  reader.onload = ()=>{
-    try{
-      const doc = new DOMParser().parseFromString(reader.result,'application/xml');
-      const c = parseChart(doc);
-      buildRuntime(c);
-      buildSvgForLines();
-      computeLastNoteTime();
+  const name = f.name.toLowerCase();
 
-      score = 0;
-      hp = MAX_HP;
-      combo = 0; maxCombo = 0;
-      perfectCount = 0; goodCount = 0; missCount = 0;
-      heldKeys.clear();
-      heldRails.clear();
-      touchMap.clear();
-      railHoldCount.clear();
-      holdCount.clear();
-      updateCombo();
-      updateHud();
-
-      homeEl.style.display = 'none';
-      resultEl.style.display = 'none';
-
-      currentTime = startTime();
-      lastTs = 0;
-      running = true;
-      requestAnimationFrame(loop);
-    }catch(ex){
-      showErr('导入/初始化失败: ' + ex.message + '\n' + ex.stack);
-    }
-  };
-  reader.onerror = ()=>{ showErr('文件读取失败'); };
-  reader.readAsText(f);
+  if(name.endsWith('.zip')){
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      JSZip.loadAsync(reader.result).then(zip=>{
+        const chartFile = zip.file(/chart\.xml$/i)[0];
+        if(!chartFile) throw new Error('zip 中找不到 chart.xml');
+        const audioFile = zip.file(/song\.mp3$/i)[0];
+        if(!audioFile) throw new Error('zip 中找不到 song.mp3');
+        return Promise.all([ chartFile.async('string'), audioFile.async('blob') ]);
+      }).then(([xmlText, audioBlob])=>{
+        releaseAudio();
+        audioUrl = URL.createObjectURL(audioBlob);
+        audioEl = new Audio(audioUrl);
+        audioEl.preload = 'auto';
+        startGameFromXml(xmlText);
+      }).catch(ex=>{ showErr('zip 解析失败: ' + ex.message); });
+    };
+    reader.onerror = ()=>{ showErr('文件读取失败'); };
+    reader.readAsArrayBuffer(f);
+  } else {
+    releaseAudio();
+    const reader = new FileReader();
+    reader.onload = ()=>{ startGameFromXml(reader.result); };
+    reader.onerror = ()=>{ showErr('文件读取失败'); };
+    reader.readAsText(f);
+  }
 };
 
 document.getElementById('backBtn').onclick = ()=>{
+  releaseAudio();
+  
   resultEl.style.display = 'none';
   homeEl.style.display = 'flex';
 
@@ -1092,6 +1160,15 @@ document.getElementById('backBtn').onclick = ()=>{
 };
 
 homeEl.style.display = 'flex';
+
+function tryResumeAudio(){
+  if(audioEl && audioStarted && audioEl.paused){
+    audioEl.play().catch(()=>{});
+  }
+}
+document.addEventListener('touchstart', tryResumeAudio, {passive:true});
+document.addEventListener('mousedown', tryResumeAudio);
+document.addEventListener('keydown', tryResumeAudio);
 </script>
 </body>
 </html>
