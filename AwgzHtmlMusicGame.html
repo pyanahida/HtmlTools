@@ -233,9 +233,10 @@ function parseChart(xmlDoc){
     });
   });
 
-  // t / d / h
-  root.querySelectorAll('taps > t, taps > d, taps > h').forEach(el=>{
+  // t / d / h / float
+  root.querySelectorAll('taps > t, taps > d, taps > h, taps > float').forEach(el=>{
     const tag = el.tagName.toLowerCase();
+    const fake = el.getAttribute('false') === 'true';
     if(tag === 'h'){
       c.notes.push({
         type: 'hold',
@@ -243,17 +244,30 @@ function parseChart(xmlDoc){
         rail: el.getAttribute('onrail'),
         startTime: parseFloat(el.getAttribute('startTime')),
         endTime: parseFloat(el.getAttribute('endTime')),
-        endType: (el.getAttribute('endType') || 'free')
+        endType: (el.getAttribute('endType') || 'free'),
+        fake
+      });
+    } else if(tag === 'float'){
+      c.notes.push({
+        type: 'float',
+        x: parseFloat(el.getAttribute('x')),
+        y: parseFloat(el.getAttribute('y')),
+        r: parseFloat(el.getAttribute('r')),
+        startTime: parseFloat(el.getAttribute('startTime')),
+        endTime: parseFloat(el.getAttribute('endTime')),
+        fake
       });
     } else {
       c.notes.push({
         type: tag === 'd' ? 'drag' : 'tap',
         line: el.getAttribute('online'),
         rail: el.getAttribute('onrail'),
-        time: parseFloat(el.getAttribute('time'))
+        time: parseFloat(el.getAttribute('time')),
+        fake
       });
     }
   });
+  
 
   root.querySelectorAll('events > pointmove').forEach(m=>{
     c.events.push({
@@ -332,17 +346,21 @@ function buildRuntime(c){
         endTime: n.endTime,
         endType: n.endType,
         duration: t,
-        // none 的有效结束
         effEnd: n.endType === 'none' ? (n.endTime - t/16) : n.endTime,
-        // 状态
-        headHit: false,      // 头判已命中
-        active: false,       // 当前处于按住状态
-        failed: false,       // 中途失败
-        done: false,         // 整体完成（成功或失败）
-        comboAcc: 0,         // 已累加的中间 combo 数（按 0.25 拍）
-        // 记录按住计数历史，用于 out 尾判
-        tailLastCount: 1,    // 尾判窗口内上一帧的按住计数
+        fake: n.fake,
+        headHit: false, active: false, failed: false, done: false,
+        comboAcc: 0, tailLastCount: 1,
         el: null, tailEl: null
+      };
+    } else if(n.type === 'float'){
+      return {
+        type: 'float',
+        x: n.x, y: n.y, r: n.r,
+        startTime: n.startTime,
+        endTime: n.endTime,
+        fake: n.fake,
+        hit: false, missed: false,
+        el: null
       };
     } else {
       return {
@@ -350,8 +368,8 @@ function buildRuntime(c){
         lineId: n.line,
         rail: n.rail,
         time: n.time,
-        hit: false,
-        missed: false,
+        fake: n.fake,
+        hit: false, missed: false,
         el: null
       };
     }
@@ -449,6 +467,7 @@ function buildSvgForLines(){
     // 音符元素
     notes.forEach(n=>{
       if(n.lineId !== l.id) return;
+      if(n.type === 'float') return;
       if(n.type === 'hold'){
         // 主体矩形
         const el = document.createElementNS('http://www.w3.org/2000/svg','rect');
@@ -473,6 +492,16 @@ function buildSvgForLines(){
     });
 
     svgLines[l.id] = { lineEl, borders, railLabels, railCount };
+  });
+  
+  // float 独立渲染（不属于任何 line）
+  notes.forEach(n=>{
+    if(n.type !== 'float') return;
+    const el = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    el.setAttribute('fill','#fff');
+    el.setAttribute('opacity','0');
+    svg.appendChild(el);
+    n.el = el;
   });
 }
 
@@ -533,6 +562,20 @@ function render(nowTime){
   const angCache = {};
   notes.forEach(n=>{
     if(!n.el) return;
+    if(n.type === 'float'){
+      const nowTime2 = nowTime;
+      if(nowTime2 < n.startTime || nowTime2 > n.endTime){
+        n.el.setAttribute('opacity','0');
+        return;
+      }
+      n.el.setAttribute('cx', n.x);
+      n.el.setAttribute('cy', n.y);
+      n.el.setAttribute('r', n.r);
+      let op = n.hit ? 0.3 : 1;
+      if(n.fake) op = 0.6;
+      n.el.setAttribute('opacity', op);
+      return;
+    }
     const l = lines.find(x=>x.id===n.lineId);
     if(!l){ n.el.setAttribute('opacity','0'); if(n.tailEl) n.tailEl.setAttribute('opacity','0'); return; }
     const g = lineGeom(l, nowTime);
@@ -577,7 +620,7 @@ function render(nowTime){
       n.el.setAttribute('height', length);
       const lineAng = Math.atan2(pHead.y - pTail.y, pHead.x - pTail.x) * 180/Math.PI;
       n.el.setAttribute('transform', `translate(${cx} ${cy}) rotate(${lineAng + 90})`);
-      n.el.setAttribute('opacity', n.failed ? '0.3' : '1');
+      n.el.setAttribute('opacity', n.failed ? '0.3' : (n.fake ? '0.6' : '1'));
     
       // 尾端标记（只有当尾端还没过线时才显示）
       let tailColor = '#fff';
@@ -599,7 +642,7 @@ function render(nowTime){
       n.el.setAttribute('y', p.y - rectH/2);
       n.el.setAttribute('width', rectW);
       n.el.setAttribute('height', rectH);
-      n.el.setAttribute('opacity','1');
+      n.el.setAttribute('opacity', n.fake ? '0.6' : '1');
       n.el.setAttribute('transform', `rotate(${ang} ${p.x} ${p.y})`);
     }
   });
@@ -696,6 +739,7 @@ function judgeKeyDown(letter){
   for(const n of notes){
     if(n.type !== 'tap') continue;
     if(n.hit || n.missed) continue;
+    if(n.fake) continue;
     if(n.rail !== letter) continue;
     const diff = Math.abs(t2s(n.time - nowTime));
     if(diff < bestTDiff){ bestTDiff = diff; bestT = n; }
@@ -708,6 +752,7 @@ function judgeKeyDown(letter){
   // hold 头判
   for(const n of notes){
     if(n.type !== 'hold') continue;
+    if(n.fake) continue;
     if(n.headHit || n.failed) continue;
     if(n.rail !== letter) continue;
     const diff = Math.abs(t2s(n.startTime - nowTime));
@@ -723,6 +768,30 @@ function judgeKeyDown(letter){
   }
 }
 
+/* float 点击：屏幕/SVG 坐标，找命中的圆 */
+function handleFloatClick(svgX, svgY){
+  if(!chart || !running || paused) return;
+  const nowTime = currentTime;
+  let best = null, bestRemain = Infinity;
+  for(const n of notes){
+    if(n.type !== 'float') continue;
+    if(n.fake) continue;
+    if(n.hit || n.missed) continue;
+    if(nowTime < n.startTime || nowTime > n.endTime) continue;
+    const d = Math.hypot(svgX - n.x, svgY - n.y);
+    if(d <= n.r){
+      const remain = n.endTime - nowTime;
+      if(remain < bestRemain){ bestRemain = remain; best = n; }
+    }
+  }
+  if(best){
+    best.hit = true;
+    addHit('perfect', null);
+    return true;
+  }
+  return false;
+}
+
 /* 判定：每帧检查 drag + hold 中间/尾判 */
 function checkContinuous(){
   const nowTime = currentTime;
@@ -731,6 +800,7 @@ function checkContinuous(){
   for(const n of notes){
     if(n.type !== 'drag') continue;
     if(n.hit || n.missed) continue;
+    if(n.fake) continue;
     const diff = Math.abs(t2s(n.time - nowTime));
     if(diff > goodWindow) continue;
     if(railHeld(n.rail)){
@@ -743,6 +813,7 @@ function checkContinuous(){
   for(const n of notes){
     if(n.type !== 'hold') continue;
     if(n.done) continue;
+    if(n.fake) continue;
 
     const t = n.duration;
     const effEnd = n.effEnd;
@@ -853,10 +924,19 @@ function loseHp(amount){
 function autoMiss(){
   const nowTime = currentTime;
   for(const n of notes){
+    if(n.fake) continue;
     if(n.type === 'hold') continue;
+    if(n.type === 'float'){
+      if(n.hit || n.missed) continue;
+      if(nowTime > n.endTime){
+        n.missed = true;
+        addMiss();
+        if(!running) return;
+      }
+      continue;
+    }
     if(n.hit || n.missed) continue;
-    const th = (n.type === 'drag') ? goodWindow : goodWindow;
-    if(t2s(nowTime - n.time) > th){
+    if(t2s(nowTime - n.time) > goodWindow){
       n.missed = true;
       addMiss();
       if(!running) return;
@@ -880,7 +960,7 @@ let lastNoteTime = -Infinity;
 function computeLastNoteTime(){
   let m = -Infinity;
   for(const n of notes){
-    const end = (n.type === 'hold') ? n.endTime : n.time;
+    const end = (n.type === 'hold' || n.type === 'float') ? n.endTime : n.time;
     if(end > m) m = end;
   }
   lastNoteTime = m;
@@ -988,6 +1068,8 @@ svg.addEventListener('touchstart', e=>{
   e.preventDefault();
   if(!chart || !running) return;
   for(const t of e.changedTouches){
+    const p = screenToSvg(t.clientX, t.clientY);
+    if(handleFloatClick(p.x, p.y)) continue;   // 命中 float，跳过该触点
     const rail = railAtPoint(t.clientX, t.clientY);
     touchMap.set(t.identifier, rail);
     if(rail){
@@ -1024,6 +1106,8 @@ svg.addEventListener('touchcancel', e=>{ e.preventDefault(); endTouches(e); }, {
 
 svg.addEventListener('mousedown', e=>{
   if(!chart || !running) return;
+  const p = screenToSvg(e.clientX, e.clientY);
+  if(handleFloatClick(p.x, p.y)) return;   // 命中 float，不再判轨道
   const rail = railAtPoint(e.clientX, e.clientY);
   if(rail){ addRailHold(rail); judgeKeyDown(rail); }
 });
