@@ -283,6 +283,7 @@ function parseChart(xmlDoc){
   root.querySelectorAll('events > lineAlphaChange').forEach(el=>{
     c.events.push({
       kind: 'lineAlphaChange',
+      object: el.getAttribute('object') || null,
       startTime: parseFloat(el.getAttribute('startTime')),
       endTime: parseFloat(el.getAttribute('endTime')),
       endAlpha: parseFloat(el.getAttribute('endAlpha'))
@@ -292,6 +293,7 @@ function parseChart(xmlDoc){
   root.querySelectorAll('events > railBorderAlphaChange').forEach(el=>{
     c.events.push({
       kind: 'railBorderAlphaChange',
+      object: el.getAttribute('object') || null,
       startTime: parseFloat(el.getAttribute('startTime')),
       endTime: parseFloat(el.getAttribute('endTime')),
       endAlpha: parseFloat(el.getAttribute('endAlpha'))
@@ -301,6 +303,7 @@ function parseChart(xmlDoc){
   root.querySelectorAll('events > railCharAlphaChange').forEach(el=>{
     c.events.push({
       kind: 'railCharAlphaChange',
+      object: el.getAttribute('object') || null,
       startTime: parseFloat(el.getAttribute('startTime')),
       endTime: parseFloat(el.getAttribute('endTime')),
       endAlpha: parseFloat(el.getAttribute('endAlpha'))
@@ -328,13 +331,13 @@ function buildRuntime(c){
 
   lines = c.lines.map(l=>{
     const alphaEvents = c.events
-      .filter(e=>e.kind==='lineAlphaChange')
+      .filter(e=>e.kind==='lineAlphaChange' && (!e.object || e.object === l.id))
       .sort((a,b)=>a.startTime-b.startTime);
     const rbEvents = c.events
-      .filter(e=>e.kind==='railBorderAlphaChange')
+      .filter(e=>e.kind==='railBorderAlphaChange' && (!e.object || e.object === l.id))
       .sort((a,b)=>a.startTime-b.startTime);
     const rcEvents = c.events
-      .filter(e=>e.kind==='railCharAlphaChange')
+      .filter(e=>e.kind==='railCharAlphaChange' && (!e.object || e.object === l.id))
       .sort((a,b)=>a.startTime-b.startTime);
     return {
       id: l.id, startId: l.start, endId: l.end, rails: l.rails.slice(),
