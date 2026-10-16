@@ -297,6 +297,15 @@ function parseChart(xmlDoc){
       endAlpha: parseFloat(el.getAttribute('endAlpha'))
     });
   });
+  
+  root.querySelectorAll('events > railCharAlphaChange').forEach(el=>{
+    c.events.push({
+      kind: 'railCharAlphaChange',
+      startTime: parseFloat(el.getAttribute('startTime')),
+      endTime: parseFloat(el.getAttribute('endTime')),
+      endAlpha: parseFloat(el.getAttribute('endAlpha'))
+    });
+  });
 
   return c;
 }
@@ -324,6 +333,9 @@ function buildRuntime(c){
     const rbEvents = c.events
       .filter(e=>e.kind==='railBorderAlphaChange')
       .sort((a,b)=>a.startTime-b.startTime);
+    const rcEvents = c.events
+      .filter(e=>e.kind==='railCharAlphaChange')
+      .sort((a,b)=>a.startTime-b.startTime);
     return {
       id: l.id, startId: l.start, endId: l.end, rails: l.rails.slice(),
       baseAlpha: l.alpha,
@@ -332,6 +344,8 @@ function buildRuntime(c){
       railBorderAlpha: l.railBorderAlpha,
       alphaEvents,
       railBorderAlphaEvents: rbEvents
+      railCharAlpha: 1,
+      railCharAlphaEvents: rcEvents,
     };
   });
 
@@ -460,6 +474,7 @@ function buildSvgForLines(){
       const c0 = railCenter(g0, i, railCount);
       el.setAttribute('x', c0.x);
       el.setAttribute('y', c0.y);
+      el.setAttribute('opacity','1');
       svg.appendChild(el);
       railLabels.push(el);
     });
@@ -531,6 +546,7 @@ function render(nowTime){
 
     l.alpha = applyAlphaEvents(l.baseAlpha, l.alphaEvents, nowTime);
     l.railBorderAlpha = applyAlphaEvents(l.baseRailBorderAlpha, l.railBorderAlphaEvents, nowTime);
+    l.railCharAlpha = applyAlphaEvents(1, l.railCharAlphaEvents, nowTime);
 
     store.lineEl.setAttribute('opacity', l.alpha);
     store.borders.forEach(b=>{
@@ -556,6 +572,7 @@ function render(nowTime){
       const el = store.railLabels[i];
       el.setAttribute('x', c.x);
       el.setAttribute('y', c.y);
+      el.setAttribute('opacity', l.railCharAlpha);
     }
   }
 
