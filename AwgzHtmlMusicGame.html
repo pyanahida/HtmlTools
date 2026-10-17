@@ -94,6 +94,7 @@
         <option value="5">自由 P±160 G160-250</option>
       </select>
     </div>
+    <button id="watchModeBtn">观赏模式：关</button>
     <button id="loadBtn">导入谱面</button>
     <input id="fileInput" type="file" accept=".xml,.zip" style="display:none">
     <div class="hint" id="songName"></div>
@@ -177,6 +178,13 @@ const restartBtn = document.getElementById('restartBtn');
 const homeBtn = document.getElementById('homeBtn');
 const modeSelect = document.getElementById('modeSelect');
 const fileInput = document.getElementById('fileInput');
+const watchModeBtn = document.getElementById('watchModeBtn');
+let watchMode = false;
+
+watchModeBtn.onclick = ()=>{
+  watchMode = !watchMode;
+  watchModeBtn.textContent = '观赏模式：' + (watchMode ? '开' : '关');
+};
 
 let chart = null;
 let points = {};
@@ -364,7 +372,7 @@ function buildRuntime(c){
         endType: n.endType,
         duration: t,
         effEnd: n.endType === 'none' ? (n.endTime - t/16) : n.endTime,
-        fake: n.fake,
+        fake: watchMode || n.fake,
         headHit: false, active: false, failed: false, done: false,
         comboAcc: 0, tailLastCount: 1,
         el: null, tailEl: null
@@ -375,7 +383,7 @@ function buildRuntime(c){
         x: n.x, y: n.y, r: n.r,
         startTime: n.startTime,
         endTime: n.endTime,
-        fake: n.fake,
+        fake: watchMode || n.fake,
         hit: false, missed: false,
         el: null
       };
@@ -385,7 +393,7 @@ function buildRuntime(c){
         lineId: n.line,
         rail: n.rail,
         time: n.time,
-        fake: n.fake,
+        fake: watchMode || n.fake,
         hit: false, missed: false,
         el: null
       };
