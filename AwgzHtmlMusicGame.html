@@ -241,8 +241,8 @@ function parseChart(xmlDoc){
     });
   });
 
-  // t / d / h / float
-  root.querySelectorAll('taps > t, taps > d, taps > h, taps > float').forEach(el=>{
+  // t / d / h / float / damage
+  root.querySelectorAll('taps > t, taps > d, taps > h, taps > float, taps > damage').forEach(el=>{
     const tag = el.tagName.toLowerCase();
     const fake = el.getAttribute('false') === 'true';
     if(tag === 'h'){
@@ -265,6 +265,14 @@ function parseChart(xmlDoc){
         endTime: parseFloat(el.getAttribute('endTime')),
         fake
       });
+    } else if(tag === 'damage'){
+      c.notes.push({
+        type: 'damage',
+        line: el.getAttribute('online'),
+        rail: el.getAttribute('onrail'),
+        time: parseFloat(el.getAttribute('time')),
+        fake
+      });
     } else {
       c.notes.push({
         type: tag === 'd' ? 'drag' : 'tap',
@@ -274,6 +282,16 @@ function parseChart(xmlDoc){
         fake
       });
     }
+  });
+  
+  // block 独立解析
+  root.querySelectorAll('blocks > block, block').forEach(el=>{
+    c.notes.push({
+      type: 'block',
+      position: el.getAttribute('position'),
+      startTime: parseFloat(el.getAttribute('startTime')),
+      endTime: parseFloat(el.getAttribute('endTime'))
+    });
   });
   
 
@@ -372,7 +390,7 @@ function buildRuntime(c){
         endType: n.endType,
         duration: t,
         effEnd: n.endType === 'none' ? (n.endTime - t/16) : n.endTime,
-        fake: watchMode || n.fake,
+        fake: n.fake,
         headHit: false, active: false, failed: false, done: false,
         comboAcc: 0, tailLastCount: 1,
         el: null, tailEl: null
@@ -383,8 +401,27 @@ function buildRuntime(c){
         x: n.x, y: n.y, r: n.r,
         startTime: n.startTime,
         endTime: n.endTime,
-        fake: watchMode || n.fake,
+        fake: n.fake,
         hit: false, missed: false,
+        el: null
+      };
+    } else if(n.type === 'damage'){
+      return {
+        type: 'damage',
+        lineId: n.line,
+        rail: n.rail,
+        time: n.time,
+        fake: n.fake,
+        hit: false,
+        missed: false,
+        el: null
+      };
+    } else if(n.type === 'block'){
+      return {
+        type: 'block',
+        position: n.position,
+        startTime: n.startTime,
+        endTime: n.endTime,
         el: null
       };
     } else {
@@ -393,7 +430,7 @@ function buildRuntime(c){
         lineId: n.line,
         rail: n.rail,
         time: n.time,
-        fake: watchMode || n.fake,
+        fake: n.fake,
         hit: false, missed: false,
         el: null
       };
@@ -492,16 +529,15 @@ function buildSvgForLines(){
 
     // 音符元素
     notes.forEach(n=>{
+      if(n.type === 'block') return; // block 单独建
       if(n.lineId !== l.id) return;
       if(n.type === 'float') return;
       if(n.type === 'hold'){
-        // 主体矩形
         const el = document.createElementNS('http://www.w3.org/2000/svg','rect');
         el.setAttribute('fill','#fff');
         el.setAttribute('opacity','0');
         svg.appendChild(el);
         n.el = el;
-        // 尾端描边
         const tailEl = document.createElementNS('http://www.w3.org/2000/svg','line');
         tailEl.setAttribute('stroke','#fff');
         tailEl.setAttribute('stroke-width','4');
@@ -510,7 +546,7 @@ function buildSvgForLines(){
         n.tailEl = tailEl;
       } else {
         const el = document.createElementNS('http://www.w3.org/2000/svg','rect');
-        el.setAttribute('fill','#fff');
+        el.setAttribute('fill', n.type === 'damage' ? '#9214DD' : '#fff');
         el.setAttribute('opacity','0');
         svg.appendChild(el);
         n.el = el;
@@ -526,6 +562,21 @@ function buildSvgForLines(){
     const el = document.createElementNS('http://www.w3.org/2000/svg','circle');
     el.setAttribute('fill','#fff');
     el.setAttribute('opacity','0');
+    svg.appendChild(el);
+    n.el = el;
+  });
+  
+  // 建 block（最高层级）
+  notes.forEach(n=>{
+    if(n.type !== 'block') return;
+    const el = document.createElementNS('http://www.w3.org/2000/svg','polygon');
+    el.setAttribute('fill', '#F00');
+    el.setAttribute('opacity', '0');
+    const pts = (n.position || '').trim().split(/\s+/).map(p => {
+      const parts = p.split(',');
+      return parts[0] + ',' + parts[1];
+    }).join(' ');
+    el.setAttribute('points', pts);
     svg.appendChild(el);
     n.el = el;
   });
@@ -587,12 +638,20 @@ function render(nowTime){
     }
   }
 
-  const angCache = {};
   notes.forEach(n=>{
     if(!n.el) return;
+  
+    if(n.type === 'block'){
+      if(nowTime < n.startTime || nowTime > n.endTime){
+        n.el.setAttribute('opacity','0');
+      } else {
+        n.el.setAttribute('opacity','1');
+      }
+      return;
+    }
+  
     if(n.type === 'float'){
-      const nowTime2 = nowTime;
-      if(nowTime2 < n.startTime || nowTime2 > n.endTime){
+      if(nowTime < n.startTime || nowTime > n.endTime){
         n.el.setAttribute('opacity','0');
         return;
       }
@@ -604,6 +663,7 @@ function render(nowTime){
       n.el.setAttribute('opacity', op);
       return;
     }
+  
     const l = lines.find(x=>x.id===n.lineId);
     if(!l){ n.el.setAttribute('opacity','0'); if(n.tailEl) n.tailEl.setAttribute('opacity','0'); return; }
     const g = lineGeom(l, nowTime);
@@ -612,45 +672,34 @@ function render(nowTime){
     if(railIndex < 0){ n.el.setAttribute('opacity','0'); if(n.tailEl) n.tailEl.setAttribute('opacity','0'); return; }
     const rectW = g.len / railCount;
     const ang = Math.atan2(g.uy, g.ux) * 180/Math.PI;
-
+  
     if(n.type === 'hold'){
-      // 头端、尾端沿法向的位置（dist 为负表示已穿过判定线）
       let distHead = noteSpeed * t2s(n.startTime - nowTime);
       let distTail = noteSpeed * t2s(n.endTime - nowTime);
-    
-      // 隐藏穿过判定线的部分
       if (distHead < 0) distHead = 0;
       if (distTail < 0) {
-        // 尾端也过线了，整个长条已经走完
         n.el.setAttribute('opacity','0');
         if(n.tailEl) n.tailEl.setAttribute('opacity','0');
         return;
       }
-    
       const pHead = notePos(g, railIndex, railCount, distHead);
       const pTail = notePos(g, railIndex, railCount, distTail);
-    
-      // 长度 = 头尾实际距离（已经过截断）
       const length = Math.hypot(pHead.x - pTail.x, pHead.y - pTail.y);
       if (length <= 0) {
         n.el.setAttribute('opacity','0');
         if(n.tailEl) n.tailEl.setAttribute('opacity','0');
         return;
       }
-    
       const cx = (pHead.x + pTail.x) / 2;
       const cy = (pHead.y + pTail.y) / 2;
       const rectW2 = rectW;
-    
       n.el.setAttribute('x', -rectW2/2);
       n.el.setAttribute('y', -length/2);
       n.el.setAttribute('width', rectW2);
       n.el.setAttribute('height', length);
       const lineAng = Math.atan2(pHead.y - pTail.y, pHead.x - pTail.x) * 180/Math.PI;
-      n.el.setAttribute('transform', `translate(${cx} ${cy}) rotate(${lineAng + 90})`);
+      n.el.setAttribute('transform', 'translate(' + cx + ' ' + cy + ') rotate(' + (lineAng + 90) + ')');
       n.el.setAttribute('opacity', n.failed ? '0.3' : (n.fake ? '0.6' : '1'));
-    
-      // 尾端标记（只有当尾端还没过线时才显示）
       let tailColor = '#fff';
       if(n.endType === 'free') tailColor = '#f00';
       else if(n.endType === 'none') tailColor = '#00e';
@@ -663,7 +712,7 @@ function render(nowTime){
       n.tailEl.setAttribute('opacity', n.failed ? '0.3' : '1');
     } else {
       if(n.hit || n.missed){ n.el.setAttribute('opacity','0'); return; }
-      const rectH = n.type === 'drag' ? rectW / 15 : rectW / 6;
+      const rectH = (n.type === 'drag' || n.type === 'damage') ? rectW / 15 : rectW / 6;
       const dist = noteSpeed * t2s(n.time - nowTime);
       const p = notePos(g, railIndex, railCount, dist);
       n.el.setAttribute('x', p.x - rectW/2);
@@ -671,7 +720,7 @@ function render(nowTime){
       n.el.setAttribute('width', rectW);
       n.el.setAttribute('height', rectH);
       n.el.setAttribute('opacity', n.fake ? '0.6' : '1');
-      n.el.setAttribute('transform', `rotate(${ang} ${p.x} ${p.y})`);
+      n.el.setAttribute('transform', 'rotate(' + ang + ' ' + p.x + ' ' + p.y + ')');
     }
   });
 }
@@ -762,7 +811,21 @@ function judgeKeyDown(letter){
   if(!chart || !running || paused) return;
   const nowTime = currentTime;
 
-  // t
+  // --- 新增：先查地雷 ---
+  for(const n of notes){
+    if(n.type !== 'damage' || n.fake || n.hit) continue;
+    if(n.rail !== letter) continue;
+    const diff = Math.abs(t2s(n.time - nowTime));
+    if(diff <= goodWindow){ 
+      n.hit = true; 
+      hp -= 2;      
+      if(hp <= 0){ hp = 0; updateHud(); endGame(); return; }
+      updateHud();
+      break;
+    }
+  }
+
+  // t 判定
   let bestT = null, bestTDiff = Infinity;
   for(const n of notes){
     if(n.type !== 'tap') continue;
@@ -794,6 +857,38 @@ function judgeKeyDown(letter){
       break;
     }
   }
+}
+
+function isPointInPolygon(x, y, positionStr){
+  const pts = (positionStr || '').trim().split(/\s+/).map(p => {
+    const parts = p.split(',');
+    return {x: parseFloat(parts[0]), y: parseFloat(parts[1])};
+  });
+  if(pts.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i].x, yi = pts[i].y;
+    const xj = pts[j].x, yj = pts[j].y;
+    const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function checkBlockClick(svgX, svgY){
+  const nowTime = currentTime;
+  for(const n of notes){
+    if(n.type !== 'block') continue;
+    if(nowTime >= n.startTime && nowTime <= n.endTime){
+      if(isPointInPolygon(svgX, svgY, n.position)){
+        hp -= 5;
+        if(hp <= 0){ hp = 0; updateHud(); endGame(); return true; }
+        updateHud();
+        return true; 
+      }
+    }
+  }
+  return false;
 }
 
 /* float 点击：屏幕/SVG 坐标，找命中的圆 */
@@ -953,16 +1048,23 @@ function autoMiss(){
   const nowTime = currentTime;
   for(const n of notes){
     if(n.fake) continue;
-    if(n.type === 'hold') continue;
-    if(n.type === 'float'){
-      if(n.hit || n.missed) continue;
-      if(nowTime > n.endTime){
-        n.missed = true;
-        addMiss();
-        if(!running) return;
+    
+    // --- 新增：damage 安全过线 ---
+    if (n.type === 'damage') {
+      if (n.hit || n.missed) continue;
+      if (t2s(nowTime - n.time) > goodWindow) {
+        n.hit = true; 
+        combo++;
+        if(combo>maxCombo) maxCombo = combo;
+        perfectCount++; 
+        spawnHitEffect(n.rail, 'perfect'); 
+        updateCombo();
+        updateHud();
       }
-      continue;
+      continue; 
     }
+    
+    if(n.type === 'hold' || n.type === 'block' || n.type === 'float') continue;
     if(n.hit || n.missed) continue;
     if(t2s(nowTime - n.time) > goodWindow){
       n.missed = true;
@@ -1093,19 +1195,27 @@ function removeRailHold(rail){
 }
 
 svg.addEventListener('touchstart', e=>{
-  e.preventDefault();
-  if(!chart || !running) return;
+  e.preventDefault(); 
+  if(!chart || !running || paused) return;
+
   for(const t of e.changedTouches){
     const p = screenToSvg(t.clientX, t.clientY);
-    if(handleFloatClick(p.x, p.y)) continue;   // 命中 float，跳过该触点
+    
+    // 拦截 block 点击
+    if (checkBlockClick(p.x, p.y)) continue;
+
+    // 判定 float
+    if(handleFloatClick(p.x, p.y)) continue; 
+    
+    // 判定轨道
     const rail = railAtPoint(t.clientX, t.clientY);
-    touchMap.set(t.identifier, rail);
     if(rail){
+      touchMap.set(t.identifier, rail);
       addRailHold(rail);
       judgeKeyDown(rail);
     }
   }
-}, {passive:false});
+}, {passive:false}); 
 
 svg.addEventListener('touchmove', e=>{
   e.preventDefault();
@@ -1135,6 +1245,10 @@ svg.addEventListener('touchcancel', e=>{ e.preventDefault(); endTouches(e); }, {
 svg.addEventListener('mousedown', e=>{
   if(!chart || !running) return;
   const p = screenToSvg(e.clientX, e.clientY);
+  
+  // 拦截 block 点击
+  if (checkBlockClick(p.x, p.y)) return;
+
   if(handleFloatClick(p.x, p.y)) return;   // 命中 float，不再判轨道
   const rail = railAtPoint(e.clientX, e.clientY);
   if(rail){ addRailHold(rail); judgeKeyDown(rail); }
