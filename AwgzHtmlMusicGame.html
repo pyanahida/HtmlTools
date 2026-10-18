@@ -116,6 +116,7 @@
       </select>
     </div>
     <button id="watchModeBtn">观赏模式：关</button>
+    <button id="demoSkyBtn">示例关卡 Sky Lv15</button>
     <button id="loadBtn">导入谱面</button>
     <input id="fileInput" type="file" accept=".xml,.zip" style="display:none">
     <div class="hint" id="songName"></div>
@@ -1483,6 +1484,63 @@ fileInput.onchange = (e)=>{
     reader.onerror = ()=>{ showErr('文件读取失败'); };
     reader.readAsText(f);
   }
+};
+
+document.getElementById('demoSkyBtn').onclick = ()=>{
+  // 读取流速和模式配置
+  let s = parseFloat(speedInput.value);
+  if(isNaN(s)) s = 20;
+  s = Math.max(5, Math.min(100, s));
+  speedInput.value = s;
+  noteSpeed = 10 * s;
+
+  const idx = parseInt(modeSelect.value, 10) || 0;
+  const mode = MODES[idx] || MODES[2];
+  perfectWindow = mode.p / 1000;
+  goodWindow = mode.g / 1000;
+
+  // 提示一下正在加载
+  const btn = document.getElementById('demoSkyBtn');
+  const originalText = btn.textContent;
+  btn.textContent = '加载中...';
+  btn.disabled = true;
+
+  // 从同目录 fetch 这个 zip
+  fetch('AwgzLevelSky.zip?t=' + Date.now())
+    .then(res => {
+      if (!res.ok) throw new Error('找不到 AwgzLevelSky.zip，请确保文件已上传');
+      return res.arrayBuffer();
+    })
+    .then(buffer => {
+      // 用 JSZip 解压
+      return JSZip.loadAsync(buffer);
+    })
+    .then(zip => {
+      const chartFile = zip.file(/chart\.xml$/i)[0];
+      if(!chartFile) throw new Error('zip 中找不到 chart.xml');
+      const audioFile = zip.file(/song\.mp3$/i)[0];
+      if(!audioFile) throw new Error('zip 中找不到 song.mp3');
+      
+      return Promise.all([ chartFile.async('string'), audioFile.async('blob') ]);
+    })
+    .then(([xmlText, audioBlob])=>{
+      // 释放之前的音频，加载新音频
+      releaseAudio();
+      audioUrl = URL.createObjectURL(audioBlob);
+      audioEl = new Audio(audioUrl);
+      audioEl.preload = 'auto';
+      
+      // 开始游戏
+      startGameFromXml(xmlText);
+    })
+    .catch(ex=>{
+      showErr('加载示例关卡失败: ' + ex.message);
+    })
+    .finally(()=>{
+      // 恢复按钮状态
+      btn.textContent = originalText;
+      btn.disabled = false;
+    });
 };
 
 document.getElementById('backBtn').onclick = ()=>{
