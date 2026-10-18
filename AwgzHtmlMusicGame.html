@@ -390,7 +390,7 @@ function buildRuntime(c){
         endType: n.endType,
         duration: t,
         effEnd: n.endType === 'none' ? (n.endTime - t/16) : n.endTime,
-        fake: n.fake,
+        fake: watchMode || n.fake,
         headHit: false, active: false, failed: false, done: false,
         comboAcc: 0, tailLastCount: 1,
         el: null, tailEl: null
@@ -401,7 +401,7 @@ function buildRuntime(c){
         x: n.x, y: n.y, r: n.r,
         startTime: n.startTime,
         endTime: n.endTime,
-        fake: n.fake,
+        fake: watchMode || n.fake,
         hit: false, missed: false,
         el: null
       };
@@ -411,7 +411,7 @@ function buildRuntime(c){
         lineId: n.line,
         rail: n.rail,
         time: n.time,
-        fake: n.fake,
+        fake: watchMode || n.fake,
         hit: false,
         missed: false,
         el: null
@@ -430,7 +430,7 @@ function buildRuntime(c){
         lineId: n.line,
         rail: n.rail,
         time: n.time,
-        fake: n.fake,
+        fake: watchMode || n.fake,
         hit: false, missed: false,
         el: null
       };
@@ -818,9 +818,11 @@ function judgeKeyDown(letter){
     const diff = Math.abs(t2s(n.time - nowTime));
     if(diff <= goodWindow){ 
       n.hit = true; 
-      hp -= 2;      
-      if(hp <= 0){ hp = 0; updateHud(); endGame(); return; }
-      updateHud();
+      if(!watchMode){ // 加上这个
+        hp -= 2;
+        if(hp <= 0){ hp = 0; updateHud(); endGame(); return; }
+        updateHud();
+      }
       break;
     }
   }
@@ -876,6 +878,7 @@ function isPointInPolygon(x, y, positionStr){
 }
 
 function checkBlockClick(svgX, svgY){
+  if(watchMode) return false;
   const nowTime = currentTime;
   for(const n of notes){
     if(n.type !== 'block') continue;
@@ -1038,6 +1041,7 @@ function checkContinuous(){
 }
 
 function loseHp(amount){
+  if(watchMode) return;
   hp += amount;
   if(hp <= 0){ hp = 0; updateHud(); endGame(); }
   else updateHud();
