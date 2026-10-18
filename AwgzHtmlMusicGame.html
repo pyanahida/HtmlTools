@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>AWGZ</title>
+<title>AWGZYXDCZS - 创新型网页版音游</title>
 <style>
   html,body{margin:0;height:100%;background:#000;overflow:hidden;
     display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -491,6 +491,24 @@ let svgLines = {};
 
 function buildSvgForLines(){
   svg.innerHTML = '';
+  
+  // --- 新增：强制裁剪超出 800x600 的部分 ---
+  const defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
+  const clipPath = document.createElementNS('http://www.w3.org/2000/svg','clipPath');
+  clipPath.setAttribute('id', 'viewClip');
+  const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+  rect.setAttribute('x', 0);
+  rect.setAttribute('y', 0);
+  rect.setAttribute('width', 800);
+  rect.setAttribute('height', 600);
+  clipPath.appendChild(rect);
+  defs.appendChild(clipPath);
+  svg.appendChild(defs);
+  
+  // 给整个 SVG 应用裁剪
+  svg.setAttribute('clip-path', 'url(#viewClip)');
+  // ----------------------------------------
+  
   svgLines = {};
   lines.forEach(l=>{
     const railCount = l.rails.length;
