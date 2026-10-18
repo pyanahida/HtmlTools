@@ -49,6 +49,27 @@
     align-items:center;justify-content:center;gap:14px;
     background:rgba(0,0,0,0.85);z-index:20;}
   #pauseMenu button{min-width:160px;}
+  
+  /* 帮助页面全屏遮罩 */
+  #helpOverlay {
+    position: fixed; inset: 0; background: #000; z-index: 9999;
+    display: none; flex-direction: column; color: #fff;
+    font-size: 16px; line-height: 1.6; font-family: monospace;
+  }
+  #helpContent {
+    flex: 1; overflow-y: auto; padding: 20px 40px;
+    white-space: pre-wrap; /* 保留文本格式 */
+  }
+  #helpBottom {
+    padding: 15px; text-align: center; border-top: 1px solid #333;
+    background: #111;
+  }
+  #closeHelpBtn {
+    background: #222; color: #fff; border: 1px solid #666;
+    padding: 8px 24px; cursor: pointer; font-family: monospace;
+    font-size: 16px; display: none; /* 默认隐藏 */
+  }
+  #closeHelpBtn:hover { background: #333; }
 </style>
 <script>
 (function(){
@@ -98,6 +119,7 @@
     <button id="loadBtn">导入谱面</button>
     <input id="fileInput" type="file" accept=".xml,.zip" style="display:none">
     <div class="hint" id="songName"></div>
+    <button id="helpBtn">游戏帮助 / 说明</button>
   </div>
 
   <div id="result">
@@ -115,6 +137,13 @@
     <button id="resumeBtn">继续游玩</button>
     <button id="restartBtn">从头重新开始</button>
     <button id="homeBtn">回到主页面</button>
+  </div>
+</div>
+<!-- 帮助页面全屏弹窗 -->
+<div id="helpOverlay">
+  <div id="helpContent">加载中...</div>
+  <div id="helpBottom">
+    <button id="closeHelpBtn">阅读完毕，返回主页</button>
   </div>
 </div>
 
@@ -1559,6 +1588,51 @@ homeBtn.onclick = ()=>{
 };
 
 homeEl.style.display = 'flex';
+
+/* ================= 游戏帮助系统 ================= */
+const helpBtn = document.getElementById('helpBtn');
+const helpOverlay = document.getElementById('helpOverlay');
+const helpContent = document.getElementById('helpContent');
+const closeHelpBtn = document.getElementById('closeHelpBtn');
+
+helpBtn.onclick = () => {
+  helpOverlay.style.display = 'flex';
+  helpContent.scrollTop = 0; // 每次打开滚动到顶部
+  helpContent.textContent = '正在从 GitHub 读取帮助文本...';
+  closeHelpBtn.style.display = 'none'; // 没读完之前不许点返回
+
+  // 使用 fetch 读取同目录下的 awgz_help.txt
+  // 加个时间戳参数防止浏览器强制缓存旧文本
+  fetch('awgz_help.txt?t=' + Date.now())
+    .then(res => {
+      if (!res.ok) throw new Error('找不到 awgz_help.txt');
+      return res.text();
+    })
+    .then(text => {
+      helpContent.textContent = text;
+      checkScroll(); // 如果文本太短，可能不需要滚动，直接检查一次
+    })
+    .catch(err => {
+      helpContent.textContent = '加载失败：' + err.message + '\n\n请确保 awgz_help.txt 已上传并与 html 在同一目录下。';
+    });
+};
+
+// 检查是否滚动到底部
+function checkScroll() {
+  // 如果内容高度 <= 可视高度（没有滚动条），或者滚动到了底部附近（留 5px 容错）
+  const isBottom = helpContent.scrollHeight - helpContent.scrollTop <= helpContent.clientHeight + 5;
+  if (isBottom) {
+    closeHelpBtn.style.display = 'inline-block'; // 显示按钮
+  }
+}
+
+// 监听滚动事件
+helpContent.addEventListener('scroll', checkScroll);
+
+// 关闭帮助弹窗
+closeHelpBtn.onclick = () => {
+  helpOverlay.style.display = 'none';
+};
 
 function tryResumeAudio(){
   if(audioEl && audioStarted && audioEl.paused){
