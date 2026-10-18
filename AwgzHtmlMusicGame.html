@@ -1277,14 +1277,18 @@ svg.addEventListener('touchstart', e=>{
   e.preventDefault(); 
   if(!chart || !running || paused) return;
 
-  for(const t of e.changedTouches){
+  // 改用 e.touches 遍历所有当前在屏幕上的手指
+  for(const t of e.touches){
+    // 如果这个手指已经被记录过（比如在第一、第二个 touchstart 里），跳过
+    if (touchMap.has(t.identifier)) continue;
+
     const p = screenToSvg(t.clientX, t.clientY);
     
     // 拦截 block 点击
     if (checkBlockClick(p.x, p.y)) continue;
 
     // 判定 float
-    if(handleFloatClick(p.x, p.y)) continue; 
+    if (handleFloatClick(p.x, p.y)) continue; 
     
     // 判定轨道
     const rail = railAtPoint(t.clientX, t.clientY);
@@ -1294,7 +1298,7 @@ svg.addEventListener('touchstart', e=>{
       judgeKeyDown(rail);
     }
   }
-}, {passive:false}); 
+}, {passive:false});            // "":"","":"","":"","":"","":"","":"",<Key android:codes="" android:keyLabel=""/>
 
 svg.addEventListener('touchmove', e=>{
   e.preventDefault();
