@@ -493,6 +493,8 @@ function buildSvgForLines(){
   svg.innerHTML = '';
   
   // --- 新增：强制裁剪超出 800x600 的部分 ---
+  // 经过作者设备测试，发现完全不起作用，所以直接全部注释
+  /*
   const defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
   const clipPath = document.createElementNS('http://www.w3.org/2000/svg','clipPath');
   clipPath.setAttribute('id', 'viewClip');
@@ -504,6 +506,7 @@ function buildSvgForLines(){
   clipPath.appendChild(rect);
   defs.appendChild(clipPath);
   svg.appendChild(defs);
+  */
   
   // 给整个 SVG 应用裁剪
   svg.setAttribute('clip-path', 'url(#viewClip)');
@@ -598,6 +601,23 @@ function buildSvgForLines(){
     svg.appendChild(el);
     n.el = el;
   });
+  
+    // ====== 最高层级：上下巨型遮罩板 ======
+  const maskTop = document.createElementNS('http://www.w3.org/2000/svg','rect');
+  maskTop.setAttribute('x', '-10000');
+  maskTop.setAttribute('y', '-10000');
+  maskTop.setAttribute('width', '20000');
+  maskTop.setAttribute('height', '10000');
+  maskTop.setAttribute('fill', '#000');
+  svg.appendChild(maskTop);
+  
+  const maskBottom = document.createElementNS('http://www.w3.org/2000/svg','rect');
+  maskBottom.setAttribute('x', '-10000');
+  maskBottom.setAttribute('y', '600');
+  maskBottom.setAttribute('width', '20000');
+  maskBottom.setAttribute('height', '10000');
+  maskBottom.setAttribute('fill', '#000');
+  svg.appendChild(maskBottom);
 }
 
 const FAR = 5000;
@@ -1126,6 +1146,11 @@ function endGame(){
 
 function showResult(){
   pauseBtn.style.display = 'none';
+  
+  // 隐藏游玩时的状态
+  document.getElementById('hud').style.display = 'none';
+  document.getElementById('combo').style.display = 'none';
+  
   let title;
   if(hp <= 0) title = 'LOST';
   else if(hp === MAX_HP) title = 'RECALL';
@@ -1133,11 +1158,14 @@ function showResult(){
 
   resultTitleEl.textContent = title;
   rScoreEl.textContent = score;
-  rComboEl.textContent = maxCombo;
+  rComboEl.textContent = combo;
   rPerfectEl.textContent = perfectCount;
   rGoodEl.textContent = goodCount;
   rMissEl.textContent = missCount;
+  
+  // 强制弹出并置于顶层
   resultEl.style.display = 'flex';
+  resultEl.style.zIndex = '999';
 }
 
 /* ================= 键盘 ================= */
@@ -1371,6 +1399,12 @@ function startGameFromXml(xmlText){
     pauseBtn.style.display = 'block';
     pauseMenu.style.display = 'none';
     resultEl.style.display = 'none';
+    
+    // 恢复 HUD
+    document.getElementById('hud').style.display = 'block';
+    document.getElementById('combo').style.display = 'block';
+    
+    currentTime = startTime();
 
     currentTime = startTime();
     lastTs = 0;
@@ -1423,6 +1457,9 @@ document.getElementById('backBtn').onclick = ()=>{
   
   resultEl.style.display = 'none';
   homeEl.style.display = 'flex';
+  
+  document.getElementById('hud').style.display = 'block';
+  document.getElementById('combo').style.display = 'block';
 
   svg.innerHTML = '';
   chart = null;
@@ -1486,7 +1523,6 @@ restartBtn.onclick = ()=>{
   lastTs = 0;
   audioStarted = false;
   if(audioEl){ audioEl.pause(); audioEl.currentTime = 0; }
-  gameoverEl.style.display = 'none';
   resultEl.style.display = 'none';
   running = true;
   requestAnimationFrame(loop);
@@ -1517,6 +1553,9 @@ homeBtn.onclick = ()=>{
   homeEl.style.display = 'flex';
   fileInput.value = '';
   pauseBtn.style.display = 'none';
+  
+  document.getElementById('hud').style.display = 'block';
+  document.getElementById('combo').style.display = 'block';
 };
 
 homeEl.style.display = 'flex';
